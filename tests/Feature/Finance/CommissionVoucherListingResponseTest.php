@@ -1,0 +1,151 @@
+<?php
+
+namespace Tests\Feature\Finance;
+
+use App\Http\Controllers\CommissionVoucherController;
+use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Tests\TestCase;
+
+/** Read-only CV listing regression with an isolated SQLite fixture. */
+class CommissionVoucherListingResponseTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        if (DB::getDefaultConnection() !== 'sqlite'
+            || DB::connection()->getDatabaseName() !== ':memory:') {
+            $this->fail('Only isolated SQLite :memory: is permitted.');
+        }
+        Schema::dropAllTables();
+        Schema::create('commision_vouchers', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('project_id');
+            $table->string('voucher_number');
+            $table->string('reference')->nullable();
+            $table->date('date')->nullable();
+            $table->text('description')->nullable();
+            $table->decimal('total_debit', 15, 2)->default(0);
+            $table->softDeletes();
+            $table->timestamps();
+        });
+        Schema::create('users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('email')->nullable();
+            $table->timestamps();
+        });
+        // Controller index queries Role::get(), even for AJAX.
+        // Provide the minimal Spatie roles table in this SQLite-only fixture.
+        Schema::create('roles', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('guard_name');
+            $table->timestamps();
+        });
+        Schema::create('permissions', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('guard_name');
+            $table->timestamps();
+        });
+        Schema::create('model_has_permissions', function (Blueprint $table) {
+            $table->unsignedBigInteger('permission_id');
+            $table->string('model_type');
+            $table->unsignedBigInteger('model_id');
+        });
+        Schema::create('model_has_roles', function (Blueprint $table) {
+            $table->unsignedBigInteger('role_id');
+            $table->string('model_type');
+            $table->unsignedBigInteger('model_id');
+        });
+        Schema::create('role_has_permissions', function (Blueprint $table) {
+            $table->unsignedBigInteger('permission_id');
+            $table->unsignedBigInteger('role_id');
+        });
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        // Auth user with an already-loaded role, without touching any real user table.
+        $user = new User();
+        $user->id = 1;
+        $user->setRelation('roles', collect([new \Spatie\Permission\Models\Role(['name' => 'Test Role', 'guard_name' => 'web'])]));
+        Auth::setUser($user);
+    }
+
+    public function test_ajax_listing_uses_commission_header_number_scoped_to_selected_project(): void
+    {
+        DB::table('commision_vouchers')->insert([
+            ['id' => 41, 'project_id' => 7, 'voucher_number' => '41',
+             'reference' => 'CV-Own', 'total_debit' => 100,
+             'created_at' => now(), 'updated_at' => now()],
+            ['id' => 42, 'project_id' => 8, 'voucher_number' => '9001',
+             'reference' => 'CV-Other', 'total_debit' => 100,
+             'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $request = Request::create('/commision-voucher', 'GET', ['draw' => 1, 'start' => 0, 'length' => 10]);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+        $request->cookies->set('selected_action', '7');
+        $this->app->instance('request', $request);
+
+        $response = app(CommissionVoucherController::class)->index($request);
+        $payload = $response->getData(true);
+        $this->assertSame(1, $payload['recordsTotal']);
+        $this->assertCount(1, $payload['data']);
+        $this->assertSame('CV-0000041', $payload['data'][0]['voucher_number']);
+        $this->assertSame('CV-Own', $payload['data'][0]['reference']);
+    }
+
+    public function test_ajax_pagination_returns_total_and_filtered_counts_without_page_truncation(): void
+    {
+        DB::table('commision_vouchers')->insert([
+            ['id'=>1,'project_id'=>7,'voucher_number'=>'1','reference'=>'MATCH',
+                'created_at'=>now(),'updated_at'=>now()],
+            ['id'=>2,'project_id'=>7,'voucher_number'=>'2','reference'=>'MATCH',
+                'created_at'=>now(),'updated_at'=>now()],
+            ['id'=>3,'project_id'=>7,'voucher_number'=>'3','reference'=>'OTHER',
+                'created_at'=>now(),'updated_at'=>now()],
+            ['id'=>4,'project_id'=>8,'voucher_number'=>'4','reference'=>'MATCH',
+                'created_at'=>now(),'updated_at'=>now()],
+        ]);
+        $request=Request::create('/commision-voucher','GET',[
+            'draw'=>2,'start'=>1,'length'=>1,'filter_reference'=>'MATCH'
+        ]);
+        $request->headers->set('X-Requested-With','XMLHttpRequest');
+        $request->cookies->set('selected_action','7');
+        $this->app->instance('request',$request);
+        $data=app(CommissionVoucherController::class)->index($request)->getData(true);
+        $this->assertSame(3,$data['recordsTotal']);
+        $this->assertSame(2,$data['recordsFiltered']);
+        $this->assertCount(1,$data['data']);
+        $this->assertSame(1,$data['data'][0]['id']);
+    }
+
+    public function test_foreign_project_commission_edit_is_not_found(): void
+    {
+        DB::table('commision_vouchers')->insert([
+            'id'=>41,'project_id'=>8,'voucher_number'=>'41',
+            'created_at'=>now(),'updated_at'=>now()
+        ]);
+        $request=Request::create('/commision-voucher/41/edit','GET');
+        $request->cookies->set('selected_action','7');
+        $this->app->instance('request',$request);
+        $this->expectException(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+        app(CommissionVoucherController::class)->edit(41);
+    }
+
+    public function test_foreign_project_commission_print_is_not_found(): void
+    {
+        DB::table('commision_vouchers')->insert([
+            'id'=>41,'project_id'=>8,'voucher_number'=>'41',
+            'created_at'=>now(),'updated_at'=>now()
+        ]);
+        $request=Request::create('/commision-voucher/41/print','GET');
+        $request->cookies->set('selected_action','7');
+        $this->app->instance('request',$request);
+        $this->expectException(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+        app(CommissionVoucherController::class)->print(41);
+    }
+}

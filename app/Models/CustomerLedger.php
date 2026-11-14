@@ -1,0 +1,168 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
+
+class CustomerLedger extends Model
+{
+    use \App\Models\Concerns\ProtectsFinancialHistory;
+    use HasFactory;
+
+    protected $table = 'customer_ledger';
+
+    protected $fillable = [
+        'id',
+        'customer_id',
+        'project_id',
+        'plot_id',
+        'type_id',
+        'reference',
+        'payment_type',
+        't_number',
+        'bank_id',
+        'passing_date',
+        'passing_status',
+        'check_history',
+        'date',
+        'transaction_type',
+        'amount_in',
+        'amount_out',
+        'description',
+        'is_active',
+        'is_approve',
+        'note',
+        'bank_post_at',
+        'delete_reason',
+    ];
+
+    protected $casts = [
+        'check_history' => 'array', // Automatically cast JSON to array
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $source): void {
+            if (in_array((string) $source->transaction_type,
+                \App\Services\Finance\FinancialSourceOwnership::FAMILIES, true) &&
+                (int) $source->project_id > 0 &&
+                (int) $source->type_id > 0 &&
+                trim((string) $source->reference) !== '') {
+                app(\App\Services\Finance\FinancialSourceOwnership::class)
+                    ->assertUnique((int) $source->project_id,
+                        (string) $source->transaction_type,
+                        (int) $source->type_id,
+                        (string) $source->reference);
+            }
+        });
+
+        static::updating(function (self $source): void {
+            if (!Schema::hasTable('ledgers') || !Ledger::query()
+                ->where('customer_ledger_id', $source->getKey())->exists()) {
+                return;
+            }
+
+            // Once a source owns a posted ledger leg its accounting identity
+            // and value are immutable. Clearance/approval/narrative fields can
+            // still progress without rewriting the original posting.
+            $immutable = [
+                'project_id', 'customer_id', 'plot_id', 'type_id', 'reference',
+                'date', 'transaction_type', 'amount_in', 'amount_out',
+                'payment_type', 't_number', 'bank_id', 'passing_date',
+            ];
+            if (array_intersect(array_keys($source->getDirty()), $immutable) !== []) {
+                throw new \DomainException('FINANCIAL_SOURCE_UPDATE_REQUIRES_REVERSAL');
+            }
+        });
+    }
+
+    public function addCheckHistory(array $checkDetails)
+    {
+        // Get the existing history or initialize an empty array
+        $currentHistory = $this->check_history ?? [];
+
+        // Add the new check details to the history
+        $currentHistory[] = [
+            'id' => $checkDetails['id'] ?? null,
+            'check_number' => $checkDetails['check_number'] ?? null,
+            'passing_date' => $checkDetails['passing_date'] ?? null,
+            'passing_status' => $checkDetails['passing_status'] ?? null,
+            'description_note' => $checkDetails['description_note'] ?? null,
+            'bank_name' => $checkDetails['bank_name'] ?? null, // Add bank name
+            'credit_account_id' => $checkDetails['credit_account_id'] ?? null, // Add credit account ID
+            'cleared_by_voucher' => $checkDetails['cleared_by_voucher'] ?? null,
+            'updated_by' => $checkDetails['updated_by'] ?? null,
+            'updated_at' => now(), // Record the update timestamp
+        ];
+
+        // Save the updated history back to the database
+        $this->check_history = $currentHistory;
+        $this->save();
+    }
+
+
+    // Relationships
+    public function customer_list()
+    {
+        return $this->belongsTo(Lead::class, 'customer_id');
+    }
+
+    public function plot_list()
+    {
+        return $this->belongsTo(Plot::class, 'plot_id')->withTrashed();
+    }
+
+    public function project_list()
+    {
+        return $this->belongsTo(Project::class, 'project_id');
+    }
+
+    // Scopes
+    public function scopeFilterByCustomerId($query, $customerId)
+    {
+        if ($customerId) {
+            return $query->where('customer_id', $customerId);
+        }
+    }
+
+    public function scopeFilterByPlotId($query, $plotId)
+    {
+        if ($plotId) {
+            return $query->where('plot_id', $plotId);
+        }
+    }
+
+    public function scopeFilterByPassingStatus($query, $passingStatus)
+    {
+        if ($passingStatus !== null) {
+            return $query->where('passing_status', $passingStatus);
+        }
+    }
+
+    public function scopeFilterByBankId($query, $bankId)
+    {
+        if ($bankId) {
+            return $query->where('bank_id', $bankId);
+        }
+    }
+
+    public function scopeFilterByDateRange($query, $fdate, $tdate)
+    {
+        if ($fdate && $tdate) {
+            return $query->whereDate('passing_date', '>=', $fdate)
+                        ->whereDate('passing_date', '<=', $tdate);
+        }
+    }
+    public function ledger()
+    {
+        return $this->hasOne(Ledger::class, 'customer_ledger_id', 'id');
+    }
+
+    public function bookingVoucher()
+    {
+        return $this->hasOne(BookingVoucher::class, 'customer_ledger_id', 'id');
+    }
+
+}

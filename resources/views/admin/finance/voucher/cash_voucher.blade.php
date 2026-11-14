@@ -1,0 +1,3489 @@
+@extends('admin.layouts.master')
+@section('content')
+    @php
+        $voucherType = is_string($type) && in_array($type, ['CR', 'CP'], true) ? $type : '';
+    @endphp
+    <style>
+        .page-item.active .page-link {
+            background-color: {{ $pagination_color }} !important;
+            color: #ffffff !important;
+            border: 1px solid {{ $pagination_color }} !important;
+        }
+    </style>
+
+    <div class="content-wrapper">
+        <div class="content-header">
+            <div class="container-fluid">
+                <div class="row mb-2">
+                    <div class="col-sm-6">
+                        {{-- <span class="{{ $class }}">
+                            {{ $title }}
+                        </span> --}}
+                    </div>
+                    <div class="col-sm-6">
+                        <ol class="breadcrumb float-sm-right">
+                            <li class="breadcrumb-item"><a href="{{ route('dashboard') }}">Dashboard</a></li>
+                            <li class="breadcrumb-item active">{{ $title }}</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main content -->
+        <section class="content">
+            <div class="container-fluid">
+                <div class="row">
+                    <!-- Cash Voucher Form -->
+                    <div class="col-12 mb-4">
+                        <div class="buttons d-flex justify-content-between align-items-baseline">
+                            <div class="d-flex gap-2 mb-3" style="gap: 10px;" id="voucher-tabs-container">
+                                <button class="btn {{ $theme['primary'] }} btn-sm" id="add-new-voucher-btn">
+                                    <i class="fas fa-plus"></i> Add New Cash Voucher
+                                </button>
+                                <div id="voucher-tabs" class="d-flex gap-2" style="gap: 10px;">
+                                    <div class="voucher-tab-wrapper position-relative">
+                                        <button class="btn btn-primary btn-sm active voucher-tab"
+                                            data-tab="1">Voucher#1</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="btn btn-danger btn-sm" id="clear-vouchers">
+                                <i class="fas fa-minus"></i> Clear
+                            </button>
+                        </div>
+                        <!-- Loader -->
+                        <div id="voucher-loader" class="text-center" style="display: none;">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p class="mt-2">Processing...</p>
+                        </div>
+
+                        <div class="custom_card">
+                            <!-- Form Card Loader -->
+                            <div id="form-card-loader" class="card-loader-overlay" style="display: none;">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="sr-only">Loading...</span>
+                                </div>
+                                <p class="mt-2">Processing...</p>
+                            </div>
+
+                            <div class="card-body  {{ $theme['card_body'] }}">
+                                <div class="mb-3 d-flex align-items-center justify-content-between">
+                                    <h5 class="text-lg font-semibold"> {{ $title }}</h5>
+
+                                    {{-- Buttons --}}
+                                    <div class="d-flex justify-content-end mt-3" style="gap: 10px">
+                                        <button type="button " class="btn {{ $theme['secondary'] }}" data-toggle="modal"
+                                            data-target="#confirmedModal" onclick="saveAsDraft()">Save as Draft</button>
+                                        <button type="button" class="btn {{ $theme['primary'] }}" id="submit-button"
+                                            tab-number="1">Save</button>
+                                    </div>
+                                </div>
+
+
+                                @can('create voucher')
+                                    <form action="{{ route('ledger.store') }}" method="POST" enctype="multipart/form-data"
+                                        id="voucherForm">
+                                        @csrf
+ @include('admin.finance.voucher.typed_posting_fields')
+                                        <div class="row">
+                                            <div class="col-10">
+                                                <div class="row g-2 align-items-end">
+
+                                                    {{-- Serial No (hidden) --}}
+                                                    <div class="col-12 d-none">
+                                                        <label class="fbox mb-1">Serial No.</label>
+                                                        <input type="text" value="1" name="action" hidden />
+                                                        <input type="text"
+                                                            class="form-control form-control-sm @error('reference') is-invalid @enderror"
+                                                            name="reference" value="{{ old('reference') }}" autocomplete="off"
+                                                            required>
+                                                        @error('reference')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    {{-- Voucher No (small) --}}
+                                                    <div class="col-6 col-md-3 col-lg-1">
+                                                        <label class="fbox mb-1">Voucher No</label>
+                                                        <input type="text" class="form-control form-control-sm"
+                                                            name="voucher_number" id="voucher_number"
+                                                            value="{{ $voucherType }}-{{ $latest_voucher_number ?? '' }}"
+                                                            autocomplete="off" readonly>
+                                                        @error('reference')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    {{-- Reference No (hidden) --}}
+                                                    <div class="col-12 d-none">
+                                                        <label class="fbox mb-1">Reference No</label>
+                                                        <input type="text" class="form-control form-control-sm"
+                                                            name="voucher"
+                                                            value="{{ $voucherType }}-{{ $latest_voucher_number ?? '' }}"
+                                                            autocomplete="off" readonly>
+                                                        @error('reference')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    {{-- Date (small) --}}
+                                                    <div class="col-6 col-md-3 col-lg-2">
+                                                        <label class="fbox mb-1">Date</label>
+                                                        <input type="text" name="date"
+                                                            class="date voucher-date form-control form-control-sm" data-input>
+                                                        <input type="hidden" id="hiddenDate" name="hiddenDate">
+                                                        @error('date')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    {{-- Amount (small) --}}
+                                                    <div class="col-6 col-md-3 col-lg-2">
+                                                        <label class="fbox mb-1">Amount</label>
+                                                        <input id="numberInput" oninput="formatAmount(this)" type="text"
+                                                            class="form-control form-control-sm @error('amount') is-invalid @enderror"
+                                                            placeholder="Amount" name="amount" value="{{ old('amount') }}">
+                                                        @error('amount')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    {{-- Account Type (small) --}}
+                                                    <div class="col-6 col-md-3 col-lg-2">
+                                                        <label class="fbox mb-1">Account Type</label>
+                                                            <select
+                                                                class="js-tomselect form-select form-select-sm @error('acct_type') is-invalid @enderror"
+                                                                placeholder=" " autocomplete="off" name="acct_type"
+                                                                id="acct_type">
+                                                                <option value="">Select Account Type</option>
+                                                                @foreach ($accountTypes as $accountType)
+                                                                    <option value="{{ $accountType->id }}">{{ $accountType->name }}
+                                                                    </option>
+                                                                @endforeach
+                                                            </select>
+                                                        @error('acct_type')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    {{-- Accounts (wide) --}}
+                                                    <div class="col-6 col-md-3 col-lg-2">
+                                                        <label class="fbox mb-1">Accounts</label>
+                                                        <select
+                                                            class="js-tomselect form-select form-select-sm @error('accounts_id') is-invalid @enderror"
+                                                            placeholder=" " name="accounts_id" id="accounts_id">
+                                                            <option value=""></option>
+                                                            @foreach ($headaccounts as $v)
+                                                                <option value="{{ $v->head_accounting_id }}">
+                                                                    {{ $v->headAccounting->name ?? '' }}
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+                                                        @error('accounts_id')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    {{-- Child Account (wide) --}}
+                                                    <div class="col-6 col-md-3 col-lg-3">
+                                                        <label class="fbox mb-1">Child Account</label>
+                                                        <select class="js-tomselect form-select form-select-sm"
+                                                            placeholder=" " name="subaccounts_id" id="subaccounts_id">
+                                                            <option value=""></option>
+                                                            @foreach ($partyaccounts as $v)
+                                                                @php
+                                                                    $balance = $v->balance ?? 0;
+                                                                    $balanceClass =
+                                                                        $balance < 0 ? 'text-danger' : 'text-success';
+                                                                @endphp
+                                                                <option value="{{ $v->subhead_accounting_id }}">
+                                                                    {{ $v->subheadAccounting->name ?? '' }}
+                                                                    & Balance = {{ number_format($balance, 2) }}
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+                                                        @error('subaccounts_id')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    <div class="col-6 col-md-3 col-lg-2">
+
+                                                        <label class="fbox mb-1">Payment Type</label>
+                                                        <select class="js-tomselect form-select form-select-sm"
+                                                            placeholder=" " name="payment_type" id="payment_type">
+                                                            <option value="1">Cash</option>
+                                                            <option value="2">Online</option>
+                                                            <option value="3">Check</option>
+                                                        </select>
+                                                        @error('payment_type')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    <div class="col-6 col-md-3 col-lg-2 bank_group" style="display: none">
+                                                        <label class="fbox mb-1">Number</label>
+                                                        <input id="t_number" type="text"
+                                                            class="form-control form-control-sm @error('t_number') is-invalid @enderror"
+                                                            placeholder="Transaction Number" name="t_number"
+                                                            value="{{ old('t_number') }}">
+                                                        @error('t_number')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+
+                                                    <div class="col-6 col-md-3 col-lg-2 bank_group" style="display: none">
+                                                        <label class="fbox mb-1">Bank</label>
+                                                        <select class="js-tomselect form-select form-select-sm"
+                                                            placeholder=" " name="bank_id" id="bank_id">
+                                                            <option value="">Bank</option>
+                                                            @foreach (getPakistanBanks() as $v)
+                                                                <option value="{{ $v['id'] }}">{{ $v['name'] }}
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-6 col-md-3 col-lg-2 bank_group" style="display: none">
+                                                        <label class="fbox mb-1">Passing Date</label>
+                                                        <input type="text" name="passing_date" id="passing_date"
+                                                            class="passing_date date form-control form-control-sm" data-input>
+                                                        @error('passing_date')
+                                                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+                                                    @if ($voucherType === 'CP')
+                                                        <div class="col-6 col-md-3 col-lg-2 bank_group pending_status_group"
+                                                            style="display: none">
+                                                            <label class="fbox mb-1">Status</label>
+                                                            <select class="form-control form-control-sm" name="pending_status"
+                                                                id="pending_status" disabled>
+                                                                <option value="1">Pass</option>
+                                                                <option value="2">Return</option>
+                                                                <option value="3">Cheque Bounce</option>
+                                                            </select>
+                                                        </div>
+                                                    @endif
+                                                    <div class="col-12 col-md-12 col-lg-10" style="margin-top: 10px">
+                                                        <label for="detail" class="fbox mb-1">Details</label>
+                                                        <textarea id="detail" class="form-control @error('detail') input-error @enderror"
+                                                            placeholder="Enter your details here..." name="detail" maxlength="255" required>{{ old('detail') }}</textarea>
+                                                        @error('detail')
+                                                            <div class="error-message">{{ $message }}</div>
+                                                        @enderror
+                                                    </div>
+                                                    @if ($voucherType === 'CP')
+                                                        <div class="col-12 mt-3" id="pendingPaymentsSection"
+                                                            style="display: none;">
+                                                            <div class="card border">
+                                                            <div class="card-header py-2">
+                                                                    <strong id="pendingPanelTitle">Pending Online/Check Clearance</strong>
+                                                                </div>
+                                                                <div class="card-body p-2">
+                                                                    <div class="alert alert-info py-2 mb-2">
+                                                                        Select a pending Online/Check receipt to update clearance status only. The selected amount stays locked and no duplicate Cash-Out voucher is created for the original receipt.
+                                                                    </div>
+                                                                    <input type="hidden" id="selected_pending_payment_id"
+                                                                        name="selected_pending_payment_id" value="">
+                                                                    <div class="table-responsive mb-2">
+                                                                        <table class="table table-sm table-bordered mb-0"
+                                                                            id="pendingPaymentsTable">
+                                                                            <thead>
+                                                                                <tr>
+                                                                                    <th>Select</th>
+                                                                                    <th>Source</th>
+                                                                                    <th>Date</th>
+                                                                                    <th>Voucher Number</th>
+                                                                                    <th>Customer</th>
+                                                                                    <th>Plot</th>
+                                                                                    <th>Type</th>
+                                                                                    <th>Bank</th>
+                                                                                    <th>Number</th>
+                                                                                    <th>Amount</th>
+                                                                                    <th>Passing Date</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody></tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                    <div class="border rounded p-2 mb-2 bg-light d-none" id="pendingSelectedSummary">
+                                                                        <strong>Selected voucher:</strong>
+                                                                        <span id="pendingSummaryText"></span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                            <div class="col-2">
+                                                <div class="col-md-12">
+                                                    <div class="info-card">
+                                                        <h3 class="info-card-title">Party Information</h3>
+                                                        <div class="info-grid">
+                                                            <div class="info-item">
+                                                                <span class="info-label">Phone:</span>
+                                                                <span id="phone" class="info-value">Not provided</span>
+                                                            </div>
+                                                            <div class="info-item">
+                                                                <span class="info-label">Address:</span>
+                                                                <span id="address" class="info-value">Not provided</span>
+                                                            </div>
+                                                            <div class="info-item">
+                                                                <span class="info-label">CNIC:</span>
+                                                                <span id="cnic" class="info-value">Not provided</span>
+                                                            </div>
+                                                            <div class="info-item">
+                                                                <span class="info-label">Balance:</span>
+                                                                <span id="balance" class="info-value">$0.00</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </form>
+                                @endcan
+                                <!-- Cash Voucher List -->
+                                <button type="button" class="btn {{ $theme['primary'] }}"
+                                    id="toggleFilters">Filters</button>
+
+                                <div id="filtersSection" class="col-12 mb-4" style="display:none;">
+                                    <div class="custom_card h-100">
+                                        <div class="card-body">
+                                            <div class="mb-3">
+                                                <h5 class="text-lg font-semibold mb-3">Cash Voucher List</h5>
+                                                <div class="row g-3 align-items-end">
+                                                    <!-- Head Account -->
+                                                    <div class="col-md-3">
+                                                        <label for="filter_head_account">Head Account</label>
+                                                        <select id="filter_head_account" name="filter_head_account[]"
+                                                            class="form-control select2" multiple>
+                                                            @foreach ($headaccounts as $account)
+                                                                <option value="{{ $account->head_accounting_id }}">
+                                                                    {{ $account->headAccounting->name }}
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+
+
+                                                    </div>
+
+                                                    <!-- Subhead Account -->
+                                                    <div class="col-md-3">
+                                                        <label for="filter_subhead_account">Subhead Account</label>
+                                                        <select id="filter_subhead_account"
+                                                            name="filter_subhead_account[]" class="form-control select2"
+                                                            multiple>
+                                                            @foreach ($partyaccounts as $account)
+                                                                <option value="{{ $account->subhead_accounting_id }}">
+                                                                    {{ $account->subheadAccounting->name }}
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+
+
+                                                    </div>
+
+
+                                                    <!-- Voucher Number -->
+                                                    <div class="col-md-3">
+                                                        <label for="filter_voucher_number">Voucher Number</label>
+                                                        <input type="text" id="filter_voucher_number"
+                                                            class="form-control" placeholder="Voucher Number">
+                                                    </div>
+
+                                                    <!-- Amount -->
+                                                    <!-- Amount Min/Max -->
+                                                    <div class="col-md-3">
+                                                        <label for="filter_amount_min">Amount (Min)</label>
+                                                        <input type="number" step="0.01" min="0"
+                                                            id="filter_amount_min" class="form-control"
+                                                            placeholder="Min amount">
+                                                    </div>
+
+                                                    <div class="col-md-3">
+                                                        <label for="filter_amount_max">Amount (Max)</label>
+                                                        <input type="number" step="0.01" min="0"
+                                                            id="filter_amount_max" class="form-control"
+                                                            placeholder="Max amount">
+                                                    </div>
+
+                                                    <!-- legacy single amount (hidden) - keeps old code/back-end safe if anything still reads it -->
+                                                    <input type="hidden" id="filter_amount" value="">
+
+                                                    <!-- Date -->
+                                                    <!-- Date -->
+                                                    {{-- <div class="col-md-3">
+                                            <label for="filter_date">Date</label>
+                                            <input type="text" id="filter_date" class="form-control date"
+                                                placeholder="YYYY-MM-DD">
+                                        </div> --}}
+                                                    <!-- Date From -->
+                                                    <div class="col-md-3">
+                                                        <label for="filter_date_from">Date From</label>
+                                                        <input type="text" id="filter_date_from"
+                                                            class="form-control date" placeholder="YYYY-MM-DD">
+                                                    </div>
+
+                                                    <!-- Date To -->
+                                                    <div class="col-md-3">
+                                                        <label for="filter_date_to">Date To</label>
+                                                        <input type="text" id="filter_date_to"
+                                                            class="form-control date" placeholder="YYYY-MM-DD">
+                                                    </div>
+
+
+                                                    <div class="col-md-12 mt-3">
+                                                        <button id="applyFilters"
+                                                            class="btn {{ $theme['primary'] }} btn-sm">Apply
+                                                            Filters</button>
+                                                        <button id="resetFilters"
+                                                            class="btn {{ $theme['secondary'] }} btn-sm">Reset</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
+
+                    <!-- Table -->
+                    @can('read voucher')
+                        <div class="table-responsive">
+                            <table id="vouchersTable" class="table table-bordered table-striped"
+                                data-source="{{ $table_data_route }}">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Date</th>
+                                        <th>Voucher Number</th>
+                                        <th>Head Account</th>
+                                        <th>Sub Head Account</th>
+                                        <th>Detail</th>
+                                        <th>Amount</th>
+                                        @canany(['update voucher', 'delete voucher', 'read voucher', 'print voucher'])
+                                            <th>Action</th>
+                                        @endcanany
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
+                        </div>
+                    @endcan
+
+
+
+                </div>
+            </div>
+        </section>
+    </div>
+    <!-- View Changes Modal -->
+    <div class="modal fade" id="viewChangesModal" tabindex="-1" aria-labelledby="viewChangesModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title" id="viewChangesModalLabel">
+                        <i class="fas fa-exchange-alt me-2"></i> Pending Changes
+                    </h5>
+                    <!-- Header close button removed -->
+                </div>
+                <div class="modal-body">
+                    <table class="table table-bordered table-hover">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Old Value</th>
+                                <th>New Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="changesTableBody">
+                            <!-- Dynamically filled by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <!-- Footer close button remains -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+@endsection
+
+@section('js')
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <script>
+        let isDateChanged = false;
+        document.addEventListener('DOMContentLoaded', () => {
+            // TomSelect instances for this page are initialized by initTomSelects()
+            // in the voucher tab manager below. Avoid a second init here because it
+            // breaks the dependent account/subaccount change flow.
+        });
+        $(document).ready(function() {
+            $(document).on('click', '.btn-view-changes', function() {
+                const oldValues = $(this).data('old') || {};
+                const newValues = $(this).data('new') || {};
+                const submittedBy = $(this).data('submitted_by') || 'Unknown User';
+                const record_id = $(this).data('record_id') || $(this).data('id'); // fallback to id
+                const $tbody = $('#changesTableBody');
+                const $modalFooter = $('#viewChangesModal .modal-footer');
+
+                $tbody.empty();
+                $modalFooter.find('.btn-approve, .btn-reject').remove(); // Remove old buttons if any
+
+                // 🛑 Check if this is a delete request (only is_active changed to 0)
+                if (Object.keys(newValues).length === 2 && newValues.is_active == 0) {
+                    $tbody.html(`
+                                        <tr>
+                                            <td colspan="3" class="text-center text-danger fw-bold">
+                                                <i class="fas fa-trash-alt me-2"></i>
+                                                User <span class="text-primary">${submittedBy}</span> has requested to <strong>delete</strong> the ledger.
+                                                ${newValues.delete_reason ? `<br><strong>Reason:</strong> ${newValues.delete_reason}` : ''}
+                                            </td>
+                                        </tr>
+                                    `);
+                } else {
+                    // 📝 Show normal field changes
+                    $.each(newValues, function(key, newVal) {
+                        const oldVal = oldValues[key] ?? '<em class="text-muted">N/A</em>';
+                        const safeNewVal = newVal ?? '<em class="text-muted">N/A</em>';
+                        $tbody.append(`
+                                            <tr>
+                                                <td><strong>${key}</strong></td>
+                                                <td>${oldVal}</td>
+                                                <td class="text-primary fw-semibold">${safeNewVal}</td>
+                                            </tr>
+                                        `);
+                    });
+                }
+
+                // ✅ Add Approve and Reject buttons dynamically
+                const approveBtn = $(`
+                                    <button class="btn btn-outline-success btn-approve" data-id="${record_id}" data-table="ledgers">
+                                        <i class="fas fa-check"></i> Approve
+                                    </button>
+                                    `);
+                const rejectBtn = $(`
+                                        <button class="btn btn-outline-danger btn-reject" data-id="${record_id}" data-table="ledgers">
+                                            <i class="fas fa-times"></i> Reject
+                                        </button>
+                                    `);
+
+                // Append buttons before the Close button
+                $modalFooter.prepend(approveBtn, rejectBtn);
+
+                // Show Bootstrap modal
+                const modal = new bootstrap.Modal($('#viewChangesModal')[0]);
+                modal.show();
+            });
+
+        });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const textarea = document.querySelector('.text-area');
+            const charCount = document.getElementById('char-count');
+
+            if (textarea && charCount) {
+                textarea.addEventListener('input', function() {
+                    charCount.textContent = this.value.length;
+                });
+                charCount.textContent = textarea.value.length;
+            }
+        });
+    </script>
+
+    <script>
+        function saveAsDraft() {
+            const form = document.getElementById('voucherForm');
+            form.action = "{{ route('ledger.save_as_draft') }}";
+        }
+
+
+        $(document).ready(function() {
+
+            // Approve voucher
+            $(document).on('click', '.btn-approve', function(e) {
+                e.preventDefault();
+                const id = $(this).data('id');
+                const table = $(this).data('table');
+                const container = $(this).closest('.admin_approval'); // full container to remove
+
+                Swal.fire({
+                    title: 'Approve Voucher?',
+                    text: 'Are you sure you want to approve this voucher?',
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'Yes, Approve',
+                    cancelButtonText: 'Cancel',
+                    customClass: {
+                        confirmButton: 'btn btn-success me-2',
+                        cancelButton: 'btn btn-secondary'
+                    },
+                    buttonsStyling: false
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        $.ajax({
+                            url: "{{ route('finance.voucher.approve', ['id' => 'ID_PLACEHOLDER']) }}"
+                                .replace('ID_PLACEHOLDER', id),
+                            type: 'POST',
+                            data: {
+                                _token: '{{ csrf_token() }}',
+                                table: table
+                            },
+                            success: function() {
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Approved!',
+                                    text: 'Voucher approved successfully.',
+                                    timer: 100,
+                                    showConfirmButton: false
+                                });
+                                // 🗑 Remove container completely
+                                window.location.reload();
+
+                            },
+                            error: function(xhr) {
+                                const error = xhr.responseJSON?.message ||
+                                    'Something went wrong.';
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Error',
+                                    text: error
+                                });
+                            }
+                        });
+                    }
+                });
+            });
+
+            // Reject voucher
+            $(document).on('click', '.btn-reject', function(e) {
+                e.preventDefault();
+                const id = $(this).data('id');
+                const table = $(this).data('table');
+                const container = $(this).closest('.admin_approval');
+
+                Swal.fire({
+                    title: 'Reject Voucher?',
+                    text: 'Are you sure you want to reject this voucher?',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Yes, Reject',
+                    cancelButtonText: 'Cancel',
+                    customClass: {
+                        confirmButton: 'btn btn-danger me-2',
+                        cancelButton: 'btn btn-secondary'
+                    },
+                    buttonsStyling: false
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        $.ajax({
+                            url: "{{ route('finance.voucher.reject', ['id' => 'ID_PLACEHOLDER']) }}"
+                                .replace('ID_PLACEHOLDER', id),
+                            type: 'POST',
+                            data: {
+                                _token: '{{ csrf_token() }}',
+                                table: table
+                            },
+                            success: function() {
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Rejected!',
+                                    text: 'Voucher rejected successfully.',
+                                    timer: 100,
+                                    showConfirmButton: false
+                                });
+                                // 🗑 Remove container completely
+                                window.location.reload();
+                            },
+                            error: function(xhr) {
+                                const error = xhr.responseJSON?.message ||
+                                    'Something went wrong.';
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Error',
+                                    text: error
+                                });
+                            }
+                        });
+                    }
+                });
+            });
+
+
+
+
+
+            let accountTypeRequestSeq = 0;
+            let childAccountRequestSeq = 0;
+
+            function clearPartyInfo() {
+                $('#cnic').text('Not provided');
+                $('#phone').text('Not provided');
+                $('#address').text('Not provided');
+                $('#balance').text('$0.00');
+            }
+
+            function clearVoucherAccountSelection() {
+                const tsAccounts = $('#accounts_id')[0]?.tomselect;
+                const tsSubAccounts = $('#subaccounts_id')[0]?.tomselect;
+                if (tsAccounts) {
+                    tsAccounts.clear(true);
+                    tsAccounts.clearOptions();
+                    tsAccounts.refreshOptions(false);
+                }
+                if (tsSubAccounts) {
+                    tsSubAccounts.clear(true);
+                    tsSubAccounts.clearOptions();
+                    tsSubAccounts.refreshOptions(false);
+                }
+            }
+
+            function toggleAccountFieldsLoading(isLoading) {
+                const tsAccounts = $('#accounts_id')[0]?.tomselect;
+                const tsSubAccounts = $('#subaccounts_id')[0]?.tomselect;
+                if (isLoading) {
+                    tsAccounts?.disable();
+                    tsSubAccounts?.disable();
+                } else {
+                    tsAccounts?.enable();
+                }
+            }
+
+            function setChildFieldEnabled(enabled) {
+                const tsSubAccounts = $('#subaccounts_id')[0]?.tomselect;
+                if (!enabled) {
+                    tsSubAccounts?.disable();
+                    return;
+                }
+                tsSubAccounts?.enable();
+            }
+
+            function optionExists(selectId, value) {
+                if (!value) return false;
+                const ts = document.getElementById(selectId)?.tomselect;
+                if (!ts) return false;
+                return Object.prototype.hasOwnProperty.call(ts.options || {}, String(value));
+            }
+
+            $('#acct_type').change(function() {
+                var acctType = $(this).val();
+                clearPartyInfo();
+                accountTypeRequestSeq += 1;
+                const reqSeq = accountTypeRequestSeq;
+                clearVoucherAccountSelection();
+                toggleAccountFieldsLoading(true);
+                setChildFieldEnabled(false);
+
+                if (acctType) {
+                    $.ajax({
+                        url: '{{ route('get_account') }}',
+                        type: 'POST',
+                        dataType: 'json',
+                        data: {
+                            acct_type: acctType,
+                            action: 'get_head',
+                            _token: '{{ csrf_token() }}'
+                        },
+                        success: function(data) {
+                            if (reqSeq !== accountTypeRequestSeq) return;
+                            const $accounts = $('#accounts_id');
+                            const $subAccounts = $('#subaccounts_id');
+
+                            const accountsEl = $accounts[0];
+                            const tsAccounts = accountsEl?.tomselect;
+
+                            const subAccountsEl = $subAccounts[0];
+                            const tsSubAccounts = subAccountsEl?.tomselect;
+
+                            if (tsAccounts) {
+                                // Clear TomSelect options and selection
+                                tsAccounts.clear(true);
+                                tsAccounts.clearOptions();
+
+                                // Also clear underlying <select>
+                                $accounts.empty();
+
+                                // Add placeholder
+                                $accounts.append('<option value=""></option>');
+
+                                // Loop and append to both <select> and TomSelect
+                                $.each(data, function(_, value) {
+                                    const opt = new Option(value.head_accounting.name,
+                                        value.head_accounting_id);
+                                    $accounts.append(opt);
+                                    tsAccounts.addOption({
+                                        value: value.head_accounting_id,
+                                        text: value.head_accounting.name
+                                    });
+                                });
+
+                                // Refresh TomSelect
+                                tsAccounts.refreshOptions(false);
+                                tsAccounts.enable();
+                            }
+
+                            if (tsSubAccounts) {
+                                tsSubAccounts.clear(true);
+                                tsSubAccounts.clearOptions();
+                                $subAccounts.empty();
+                                $subAccounts.append('<option value=""></option>');
+
+                                // If you have subaccount data in response (optional)
+                                if (data.subaccounts) {
+                                    $.each(data.subaccounts, function(_, value) {
+                                        const opt = new Option(value.name, value.id);
+                                        $subAccounts.append(opt);
+                                        tsSubAccounts.addOption({
+                                            value: value.id,
+                                            text: value.name
+                                        });
+                                    });
+                                }
+
+                                tsSubAccounts.refreshOptions(false);
+                                tsSubAccounts.disable();
+                            }
+                        },
+                        error: function() {
+                            if (reqSeq !== accountTypeRequestSeq) return;
+                            console.log('Error fetching accounts');
+                        },
+                        complete: function() {
+                            if (reqSeq !== accountTypeRequestSeq) return;
+                            const hasAccountOptions = Object.keys($('#accounts_id')[0]?.tomselect?.options || {}).length > 0;
+                            if (hasAccountOptions) {
+                                $('#accounts_id')[0]?.tomselect?.enable();
+                            } else {
+                                $('#accounts_id')[0]?.tomselect?.disable();
+                            }
+                        }
+                    });
+                } else {
+                    let tsAccounts = $('#accounts_id')[0].tomselect;
+                    let tsSubAccounts = $('#subaccounts_id')[0].tomselect;
+                    if (tsAccounts) tsAccounts.clearOptions();
+                    if (tsSubAccounts) tsSubAccounts.clearOptions();
+                    tsAccounts?.disable();
+                    tsSubAccounts?.disable();
+                }
+            });
+
+
+            // Similar change event for 'accounts_id' dropdown to fetch subaccounts based on account selection
+            $('#accounts_id').change(function() {
+                var accountID = $(this).val();
+                clearPartyInfo();
+                childAccountRequestSeq += 1;
+                const reqSeq = childAccountRequestSeq;
+
+                const tsSubAccounts = $('#subaccounts_id')[0]?.tomselect;
+                if (tsSubAccounts) {
+                    tsSubAccounts.clear(true);
+                    tsSubAccounts.clearOptions();
+                    tsSubAccounts.refreshOptions(false);
+                    tsSubAccounts.disable();
+                }
+
+                if (accountID) {
+                    $.ajax({
+                        url: '{{ route('get_account') }}',
+                        type: 'POST',
+                        dataType: 'json',
+                        data: {
+                            accountID: accountID,
+                            action: 'get_child',
+                            _token: '{{ csrf_token() }}'
+                        },
+                        success: function(data) {
+                            if (reqSeq !== childAccountRequestSeq) return;
+                            const $subAccounts = $('#subaccounts_id');
+                            const subAccountsEl = $subAccounts[0];
+                            const tsSubAccounts = subAccountsEl?.tomselect;
+
+                            // Filter only matching items
+                            const filteredData = $.grep(data, function(item) {
+                                return item.head_accounting_id == accountID;
+                            });
+
+                            if (tsSubAccounts) {
+                                // Clear TomSelect and <select>
+                                tsSubAccounts.clear(true);
+                                tsSubAccounts.clearOptions();
+                                $subAccounts.empty();
+
+                                // Add placeholder
+                                $subAccounts.append(
+                                    '<option value="">Select an option</option>');
+
+                                // Append new options to both <select> and TomSelect
+                                $.each(filteredData, function(_, value) {
+                                    const text =
+                                        `${value.subhead_accounting.name} — Balance: ${value.balance}`;
+                                    const opt = new Option(text, value
+                                        .subhead_accounting_id);
+                                    $subAccounts.append(opt);
+
+                                    tsSubAccounts.addOption({
+                                        value: value.subhead_accounting_id,
+                                        text: text
+                                    });
+                                });
+
+                                // Refresh dropdown
+                                tsSubAccounts.refreshOptions(false);
+                                tsSubAccounts.enable();
+                            }
+
+                        }
+
+                    });
+                } else {
+                    $('#subaccounts_id')[0].tomselect.clearOptions();
+                    $('#subaccounts_id')[0].tomselect.disable();
+                }
+            });
+
+            $('#subaccounts_id').change(function() {
+                var subaccountId = $(this).val();
+
+                if (subaccountId !== '') {
+                    $.ajax({
+                        url: '{{ route('get-subaccount-details') }}',
+                        type: 'POST',
+                        data: {
+                            subaccounts_id: subaccountId,
+                            _token: '{{ csrf_token() }}'
+                        },
+                        success: function(response) {
+                            let headId = response.headId;
+                            let acctSelect = $('#accounts_id')[0].tomselect;
+                            if (!acctSelect.getValue()) {
+                                acctSelect.setValue(headId, true);
+                            }
+
+                            // $('#accounts_id').val(response.headId).trigger('change');
+                            $('#cnic').text(response['cnic']); // Access data using the keys
+                            $('#phone').text(response['phone']);
+                            $('#balance').text(response['balance']);
+                        },
+                        error: function(error) {
+                            console.log(error);
+                        }
+                    });
+                }
+            });
+
+            $('#customer_id').change(function(e) {
+                e.preventDefault();
+                var customerId = $(this).val();
+
+                if (customerId) {
+                    fetchPlots(customerId);
+                } else {
+                    $('#plot_id').empty();
+                    $('#plot_id').append('<option value="">Select an options</option>');
+                }
+
+            });
+            $('#plot_id').change(function(e) {
+                e.preventDefault();
+                var plotId = $(this).val();
+                if (plotId) {
+                    $.ajax({
+                        url: '/admin/get-plot-customer', // URL to your route
+                        type: 'POST', // Use POST method for sending data
+                        data: {
+                            _token: '{{ csrf_token() }}', // Add CSRF token
+                            plot_id: plotId // Pass project ID to server
+                        },
+                        success: function(data) {
+                            let customerId = data.id;
+                            // Update the UI based on the response
+                            // let headId = response.headId;
+                            let customerSelect = $('#customer_id')[0].tomselect;
+                            customerSelect.setValue(customerId, true);
+                            // let $select = $('#customer_id');
+                            // let $options = $select.find('option');
+                            // let $matchingOption = $options.filter(function() {
+                            //     return $(this).val() == customerId;
+                            // });
+                            // if ($matchingOption.length > 0) {
+                            //     $options.prop('selected', false); // clear previous selections
+                            //     $matchingOption.prop('selected', true); // select matching one
+                            //     $matchingOption.detach().appendTo($select);
+                            // }
+                        }
+                    });
+                }
+            });
+            $('#e_customer_id').change(function(e) {
+                e.preventDefault();
+                var customerId = $(this).val();
+
+                if (customerId) {
+                    eFetchPlots(customerId);
+                } else {
+                    $('#plot_id').empty();
+                    $('#plot_id').append('<option value="">Select an options</option>');
+                }
+
+            });
+            $('#e_plot_id').change(function(e) {
+                e.preventDefault();
+                var plotId = $(this).val();
+                if (plotId) {
+                    $.ajax({
+                        url: '/admin/get-plot-customer', // URL to your route
+                        type: 'POST', // Use POST method for sending data
+                        data: {
+                            _token: '{{ csrf_token() }}', // Add CSRF token
+                            plot_id: plotId // Pass project ID to server
+                        },
+                        success: function(data) {
+                            let customerId = data.id;
+                            // Update the UI based on the response
+                            // let headId = response.headId;
+                            let customerSelect = $('#e_customer_id')[0].tomselect;
+                            customerSelect.setValue(customerId, true);
+                            // let $select = $('#customer_id');
+                            // let $options = $select.find('option');
+                            // let $matchingOption = $options.filter(function() {
+                            //     return $(this).val() == customerId;
+                            // });
+                            // if ($matchingOption.length > 0) {
+                            //     $options.prop('selected', false); // clear previous selections
+                            //     $matchingOption.prop('selected', true); // select matching one
+                            //     $matchingOption.detach().appendTo($select);
+                            // }
+                        }
+                    });
+                }
+            });
+
+
+            function fetchPlots(customerId) {
+                $.ajax({
+                    url: '/admin/get-plots-list',
+                    type: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        project_id: '{{ getSelectedTown() }}',
+                        customer_id: customerId
+                    },
+                    success: function(data) {
+                        let plotEl = $('#plot_id')[0]; // DOM element
+                        let tsPlot = plotEl.tomselect; // TomSelect instance
+                        if (tsPlot) {
+                            // tsPlot.addOption({
+                            //     value: '',
+                            //     text: 'Select an option'
+                            // });
+                            tsPlot.setValue('', true);
+                            tsPlot.clearOptions(); // clear old options
+
+                            $.each(data, function(key, plot) {
+                                var plotType = (plot.type == 1) ? 'R- ' : 'C- ';
+                                tsPlot.addOption({
+                                    value: plot.plot_id,
+                                    text: plotType + ' ' + plot.name
+                                });
+                            });
+
+                            tsPlot.refreshOptions(false);
+                        }
+                        // $('#plot_id').empty();
+                        // $('#plot_id').append('<option value="">Select an options</option>');
+                        // $.each(data, function(key, plot) {
+                        //     var plotType = (plot.type == 1) ? 'R- ' : 'C- ';
+                        //     $('#plot_id').append('<option value="' + plot.plot_id + '">' +
+                        //         plotType + ' ' + plot.name + '  </option>');
+                        // });
+                    }
+                });
+            }
+
+            function eFetchPlots(customerId) {
+                $.ajax({
+                    url: '/admin/get-plots-list',
+                    type: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        project_id: '{{ getSelectedTown() }}',
+                        customer_id: customerId
+                    },
+                    success: function(data) {
+                        let plotEl = $('#e_plot_id')[0]; // DOM element
+                        let tsPlot = plotEl.tomselect; // TomSelect instance
+                        if (tsPlot) {
+                            // tsPlot.addOption({
+                            //     value: '',
+                            //     text: 'Select an option'
+                            // });
+                            tsPlot.setValue('', true);
+                            tsPlot.clearOptions(); // clear old options
+
+                            $.each(data, function(key, plot) {
+                                var plotType = (plot.type == 1) ? 'R- ' : 'C- ';
+                                tsPlot.addOption({
+                                    value: plot.plot_id,
+                                    text: plotType + ' ' + plot.name
+                                });
+                            });
+
+                            tsPlot.refreshOptions(false);
+                        }
+                        // $('#plot_id').empty();
+                        // $('#plot_id').append('<option value="">Select an options</option>');
+                        // $.each(data, function(key, plot) {
+                        //     var plotType = (plot.type == 1) ? 'R- ' : 'C- ';
+                        //     $('#plot_id').append('<option value="' + plot.plot_id + '">' +
+                        //         plotType + ' ' + plot.name + '  </option>');
+                        // });
+                    }
+                });
+            }
+
+            @if ($voucherType === 'CP')
+                const pendingFetchUrl = "{{ route('finance.voucher.pending_bank_payments') }}";
+                window.pendingRowsCache = window.pendingRowsCache || [];
+                window.activePendingPaymentType = window.activePendingPaymentType || '2';
+                window.pendingAmountMismatchMessage = 'Amount must match the selected pending voucher.';
+
+                function getPendingTypeText(paymentType) {
+                    return String(paymentType) === '3' ? 'Check' : 'Online';
+                }
+
+                function parseMoneyValue(value) {
+                    const normalized = String(value || '').replace(/,/g, '').trim();
+                    if (normalized === '' || Number.isNaN(Number(normalized))) {
+                        return null;
+                    }
+
+                    return Number(normalized);
+                }
+
+                function formatMoneyValue(value) {
+                    const numericValue = Number(value || 0);
+                    return numericValue.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    });
+                }
+
+                window.normalizePendingMoneyValue = function(value) {
+                    const parsed = parseMoneyValue(value);
+                    return parsed === null ? null : parsed.toFixed(2);
+                };
+
+                function parseAmountForWords(value) {
+                    const clean = String(value ?? '').replace(/,/g, '').trim();
+                    if (clean === '') return null;
+                    const number = Number(clean);
+                    if (!Number.isFinite(number)) return null;
+                    return number;
+                }
+
+                function clearAmountWords() {
+                    $('#wordingAmount').text('');
+                }
+
+                function syncPendingAmountLock(selected = null, clearAmount = false) {
+                    const $amountInput = $('#numberInput');
+
+                    if (selected) {
+                        const formattedAmount = formatMoneyValue(selected.amount || 0);
+                        $amountInput
+                            .val(formattedAmount)
+                            .prop('readonly', true)
+                            .attr('data-locked-from-pending', '1')
+                            .attr('data-pending-amount', window.normalizePendingMoneyValue(selected.amount || 0));
+
+                        if (parseAmountForWords(formattedAmount) !== null) {
+                            convertToWords(formattedAmount);
+                        } else {
+                            clearAmountWords();
+                        }
+                    } else {
+                        const wasLocked = $amountInput.attr('data-locked-from-pending') === '1';
+                        $amountInput
+                            .prop('readonly', false)
+                            .removeAttr('data-locked-from-pending')
+                            .removeAttr('data-pending-amount');
+
+                        if (clearAmount && wasLocked) {
+                            $amountInput.val('');
+                            clearAmountWords();
+                            return;
+                        }
+
+                        const currentAmount = $amountInput.val();
+                        if (parseAmountForWords(currentAmount) !== null) {
+                            convertToWords(currentAmount);
+                        } else {
+                            clearAmountWords();
+                        }
+                    }
+                }
+
+                function clearPendingSelection(clearAmount = false) {
+                    const $amountInput = $('#numberInput');
+                    const wasLocked = $amountInput.attr('data-locked-from-pending') === '1';
+
+                    $('#selected_pending_payment_id').val('');
+                    $('#pendingPaymentsTable tbody tr').removeClass('table-active');
+                    $('input[name="selected_pending_payment"]').prop('checked', false);
+                    $('#pendingSelectedSummary').addClass('d-none');
+                    $('#pendingSummaryText').text('');
+                    if (clearAmount && wasLocked) {
+                        clearAmountWords();
+                    }
+                    syncPendingAmountLock(null, clearAmount);
+                }
+
+                function removeProcessedPendingRow(response) {
+                    const responseIds = [
+                        String(response?.selected_pending_payment_id || '').trim(),
+                        String(response?.customer_ledger_id || '').trim()
+                    ].filter(Boolean);
+
+                    if (!responseIds.length) {
+                        return;
+                    }
+
+                    window.pendingRowsCache = (window.pendingRowsCache || []).filter((row) => !responseIds.includes(String(row.id)));
+                }
+
+                window.resetPendingPaymentsUiAfterProcess = function(response) {
+                    removeProcessedPendingRow(response);
+                    $('#selected_pending_payment_id').val('');
+                    clearPendingSelection(true);
+                    populatePendingPaymentsTable(window.pendingRowsCache || []);
+
+                    if (typeof loadPendingPayments === 'function') {
+                        loadPendingPayments();
+                    } else {
+                        $('#payment_type').trigger('change');
+                    }
+                };
+
+                function renderPendingRows() {
+                    const $tbody = $('#pendingPaymentsTable tbody');
+                    $tbody.empty();
+                    const filtered = window.pendingRowsCache;
+                    const pendingTypeText = getPendingTypeText(window.activePendingPaymentType);
+                    $('#pendingPanelTitle').text(`Pending ${pendingTypeText} Clearance Status`);
+
+                    if (!filtered.length) {
+                        $tbody.append(`<tr><td colspan="11" class="text-center text-muted">No pending ${pendingTypeText} receipts found for this project.</td></tr>`);
+                        return;
+                    }
+
+                    filtered.forEach(function(item) {
+                        const checked = String($('#selected_pending_payment_id').val()) === String(item.id) ? 'checked' : '';
+                        const isOnline = Number(item.payment_type) === 2;
+                        const typeBadge = isOnline ? '<span class="badge bg-primary">Online</span>' : '<span class="badge bg-warning text-dark">Check</span>';
+                        const source = item.transaction_type === 'PPR' ? 'Received Payment' : 'Cash In';
+                        const pendingDays = item.pending_days !== undefined ? item.pending_days : '';
+                        const row = `<tr class="pending-row ${checked ? 'table-active' : ''}" data-id="${item.id}">
+                            <td><input type="radio" name="selected_pending_payment" value="${item.id}" ${checked}></td>
+                            <td>${source}</td>
+                            <td>${item.date || ''}</td>
+                            <td>${item.voucher_number_display || ('Pending #' + item.id)}</td>
+                            <td>${item.customer || ''}</td>
+                            <td>${item.plot || ''}</td>
+                            <td>${typeBadge}</td>
+                            <td>${item.bank || ''}</td>
+                            <td>${item.t_number || ''}</td>
+                            <td>${formatMoneyValue(item.amount || 0)}</td>
+                            <td>${item.passing_date || ''}${pendingDays !== '' ? ` <small class="text-muted">(${pendingDays}d)</small>` : ''}</td>
+                        </tr>`;
+                        $tbody.append(row);
+                    });
+                }
+
+                function populatePendingPaymentsTable(rows) {
+                    window.pendingRowsCache = rows || [];
+                    renderPendingRows();
+                }
+
+                function loadPendingPayments() {
+                    const paymentType = $('#payment_type').val();
+                    window.activePendingPaymentType = (paymentType === '3') ? '3' : '2';
+                    const requestData = {};
+                    if (paymentType === '2' || paymentType === '3') {
+                        requestData.payment_type = paymentType;
+                    }
+                    $('#pendingPaymentsTable tbody').html('<tr><td colspan="11" class="text-center text-muted">Loading pending clearance receipts...</td></tr>');
+                    $.ajax({
+                        url: pendingFetchUrl,
+                        type: 'GET',
+                        data: requestData,
+                        dataType: 'json',
+                        success: function(res) {
+                            if (res?.status === 'success') {
+                                populatePendingPaymentsTable(res.data || []);
+                            } else {
+                                populatePendingPaymentsTable([]);
+                            }
+                        },
+                        error: function() {
+                            populatePendingPaymentsTable([]);
+                        }
+                    });
+                }
+
+                window.syncPendingPanelFromPaymentType = function() {
+                    const paymentType = String($('#payment_type').val() || '');
+                    const isBankMode = paymentType === '2' || paymentType === '3';
+                    $('#pending_status').prop('disabled', !isBankMode);
+                    $('.pending_status_group').toggle(isBankMode);
+                    if (paymentType === '2' || paymentType === '3') {
+                        $('.bank_group').css('display', 'block');
+                        $('#pendingPaymentsSection').show();
+                        clearPendingSelection(true);
+                        loadPendingPayments();
+                    } else {
+                        $('.bank_group').css('display', 'none');
+                        $('#pendingPaymentsSection').hide();
+                        $('#pending_status').val('1');
+                        clearPendingSelection(true);
+                        clearAmountWords();
+                        window.pendingRowsCache = [];
+                        renderPendingRows();
+                    }
+                };
+
+                $(document).on('change', 'input[name="selected_pending_payment"]', function() {
+                    const selectedId = $(this).val();
+                    $('#selected_pending_payment_id').val(selectedId);
+                    $('#pendingPaymentsTable tbody tr').removeClass('table-active');
+                    $(this).closest('tr').addClass('table-active');
+                    const selected = window.pendingRowsCache.find((row) => String(row.id) === String(selectedId));
+                    if (selected) {
+                        $('#pendingSummaryText').text(
+                            `${selected.voucher_number_display || ('Pending #' + selected.id)} | ${selected.transaction_type === 'PPR' ? 'Received Payment' : 'Cash In'} | ${selected.bank || 'N/A'} | ${selected.t_number || 'N/A'} | ${formatMoneyValue(selected.amount || 0)}`
+                        );
+                        $('#pendingSelectedSummary').removeClass('d-none');
+                        syncPendingAmountLock(selected);
+                    } else {
+                        $('#pendingSelectedSummary').addClass('d-none');
+                        syncPendingAmountLock(null, false);
+                    }
+                });
+            @endif
+
+            $('#payment_type').change(function(e) {
+
+                e.preventDefault();
+                @if ($voucherType === 'CP')
+                    if (typeof window.syncPendingPanelFromPaymentType === 'function') {
+                        window.syncPendingPanelFromPaymentType();
+                    }
+                @else
+                    if ($(this).val() != '1') {
+                        $('.bank_group').css('display', 'block');
+                    } else {
+                        $('.bank_group').css('display', 'none');
+                    }
+                @endif
+            });
+            function normalizeDateForInput(value) {
+                if (!value) return '';
+                const raw = String(value).trim();
+                if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+                    return raw.substring(0, 10);
+                }
+                return raw;
+            }
+
+            function setDateInputValue(selector, value) {
+                const normalized = normalizeDateForInput(value);
+                const el = document.querySelector(selector);
+                if (!el) return;
+
+                if (el._flatpickr) {
+                    el._flatpickr.setDate(normalized || null, false, 'Y-m-d');
+                } else {
+                    $(selector).val(normalized);
+                }
+            }
+
+            function ensureEditDatePickersInitialized() {
+                [
+                    '#edit_date',
+                    '#edit_passing_date'
+                ].forEach(function(selector) {
+                    const el = document.querySelector(selector);
+                    if (!el || el._flatpickr || typeof flatpickr === 'undefined') {
+                        return;
+                    }
+
+                    flatpickr(el, {
+                        enableTime: false,
+                        dateFormat: "Y-m-d",
+                        altInput: true,
+                        altFormat: "F j, Y"
+                    });
+                });
+            }
+
+            function applyEditVoucherTheme(voucherType) {
+                const $header = $('#modal-edit .modal-header');
+                const $title = $('#modal-edit-title');
+                const $updateButton = $('#edit-update-button');
+                $header.removeClass('cash-in cash-out bg-secondary');
+                $updateButton.removeClass('btn-success btn-danger btn-primary').addClass('btn-primary');
+                if (voucherType === 'CR') {
+                    $header.css({
+                        'background-color': '#28a745',
+                        'color': '#fff'
+                    });
+                    $title.text('Edit Cash In Voucher');
+                    $updateButton.removeClass('btn-primary').addClass('btn-success');
+                } else if (voucherType === 'CP') {
+                    $header.css({
+                        'background-color': '#dc3545',
+                        'color': '#fff'
+                    });
+                    $title.text('Edit Cash Out Voucher');
+                    $updateButton.removeClass('btn-primary').addClass('btn-danger');
+                } else {
+                    $header.addClass('bg-secondary');
+                    $header.css({
+                        'background-color': '',
+                        'color': ''
+                    });
+                    $title.text('Edit Voucher');
+                }
+            }
+
+            function resetEditModalFields() {
+                $('#edit_id').val('');
+                $('#edit_voucher_number').val('');
+                $('#edit_voucher_type').val('');
+                setDateInputValue('#edit_date', '');
+                $('#edit_amount').val('');
+                $('#edit_detail').val('');
+                $('#edit_t_number').val('');
+                setDateInputValue('#edit_passing_date', '');
+                $('#edit_passing_status').val('');
+                $('#edit_t_number_label').text('Number');
+
+                const selectIds = ['edit_acct_type', 'edit_accounts_id', 'edit_subaccounts_id', 'edit_payment_type', 'edit_bank_id', 'edit_passing_status'];
+                selectIds.forEach(function(selectId) {
+                    const ts = $('#' + selectId)[0]?.tomselect;
+                    if (ts) {
+                        ts.clear(true);
+                    }
+                });
+
+                $('.edit-bank-field').hide();
+                $('#edit_passing_status_group').hide();
+                $('#edit-update-button').prop('disabled', false).text('Update');
+            }
+
+            function syncEditPaymentFields(paymentType, passingStatus) {
+                const type = Number(paymentType || 1);
+                const hasStatusValue = passingStatus !== null && passingStatus !== undefined && String(passingStatus) !== '';
+                const showBankFields = type === 2 || type === 3;
+                $('.edit-bank-field').toggle(showBankFields);
+                if (type === 2) {
+                    $('#edit_t_number_label').text('Transaction Number');
+                } else if (type === 3) {
+                    $('#edit_t_number_label').text('Cheque Number');
+                } else {
+                    $('#edit_t_number_label').text('Number');
+                }
+
+                const shouldShowStatus = showBankFields && hasStatusValue;
+                $('#edit_passing_status_group').toggle(shouldShowStatus);
+            }
+
+            function loadEditAccountsByType(acctType) {
+                return $.ajax({
+                    url: '{{ route('get_account') }}',
+                    type: 'POST',
+                    dataType: 'json',
+                    data: {
+                        acct_type: acctType,
+                        action: 'get_head',
+                        _token: '{{ csrf_token() }}'
+                    }
+                });
+            }
+
+            function loadEditSubaccountsByHead(headId) {
+                return $.ajax({
+                    url: '{{ route('get_account') }}',
+                    type: 'POST',
+                    dataType: 'json',
+                    data: {
+                        accountID: headId,
+                        action: 'get_child',
+                        _token: '{{ csrf_token() }}'
+                    }
+                });
+            }
+
+            $('#edit_payment_type').change(function(e) {
+                e.preventDefault();
+                syncEditPaymentFields($(this).val(), $('#edit_passing_status').val());
+            });
+
+            @if ($voucherType === 'CP')
+                setTimeout(function() {
+                    if (typeof window.syncPendingPanelFromPaymentType === 'function') {
+                        window.syncPendingPanelFromPaymentType();
+                    }
+                }, 0);
+            @endif
+
+            $('#edit_acct_type').change(function() {
+                var acctType = $(this).val();
+                if (acctType) {
+                    loadEditAccountsByType(acctType).done(function(data) {
+                        let tsAccounts = $('#edit_accounts_id')[0]?.tomselect;
+                        let tsSubAccounts = $('#edit_subaccounts_id')[0]?.tomselect;
+                        if (tsAccounts) {
+                            tsAccounts.clear(true);
+                            tsAccounts.clearOptions();
+                            $.each(data, function(key, value) {
+                                tsAccounts.addOption({
+                                    value: value.head_accounting_id,
+                                    text: value.head_accounting.name
+                                });
+                            });
+                            tsAccounts.refreshOptions(false);
+                        }
+                        if (tsSubAccounts) {
+                            tsSubAccounts.clear(true);
+                            tsSubAccounts.clearOptions();
+                        }
+                    }).fail(function() {
+                        console.log('Error fetching accounts');
+                    });
+                } else {
+                    let tsAccounts = $('#edit_accounts_id')[0].tomselect;
+                    let tsSubAccounts = $('#edit_subaccounts_id')[0].tomselect;
+                    if (tsAccounts) tsAccounts.clearOptions();
+                    if (tsSubAccounts) tsSubAccounts.clearOptions();
+                }
+            });
+
+            $('#edit_accounts_id').change(function() {
+                var accountID = $(this).val();
+
+                if (accountID) {
+                    loadEditSubaccountsByHead(accountID).done(function(data) {
+                        let subAccountsSelect = $('#edit_subaccounts_id')[0].tomselect;
+                        let filteredData = $.grep(data, function(item) {
+                            return item.head_accounting_id == accountID;
+                        });
+                        subAccountsSelect.clear(true);
+                        subAccountsSelect.clearOptions();
+                        $.each(filteredData, function(key, value) {
+                            subAccountsSelect.addOption({
+                                value: value.subhead_accounting_id,
+                                text: value.subhead_accounting.name + ' — Balance: ' + value.balance
+                            });
+                        });
+                        subAccountsSelect.refreshOptions(false);
+                    });
+                } else {
+                    $('#edit_subaccounts_id')[0].tomselect.clearOptions();
+                }
+            });
+
+            $('#edit_subaccounts_id').change(function() {
+                var subaccountId = $(this).val();
+
+                if (subaccountId !== '') {
+                    $.ajax({
+                        url: '{{ route('get-subaccount-details') }}',
+                        type: 'POST',
+                        data: {
+                            subaccounts_id: subaccountId,
+                            _token: '{{ csrf_token() }}'
+                        },
+                        success: function(response) {
+                            let headId = response.headId;
+                            let acctSelect = $('#edit_accounts_id')[0].tomselect;
+                            if (!acctSelect.getValue()) {
+                                acctSelect.setValue(headId, true);
+                            }
+                        },
+                        error: function(error) {
+                            console.log(error);
+                        }
+                    });
+                }
+            });
+
+
+            $(document).on("click", '.btn-edit', function() {
+                let id = $(this).attr("data-id");
+                let voucherType = $(this).attr("data-voucher-type");
+                let voucherNumber = $(this).attr("data-voucher-number");
+                resetEditModalFields();
+                $('#edit_id').val(id);
+                $('#edit-update-button').prop('disabled', true).text('Loading...');
+                $('#modal-loading').modal({
+                    backdrop: 'static',
+                    keyboard: false,
+                    show: true
+                });
+                $.ajax({
+                    url: "{{ route('ledger.show') }}",
+                    type: "POST",
+                    dataType: "JSON",
+                    data: {
+                        id: id,
+                        voucher_type: voucherType,
+                        voucher_number: voucherNumber,
+                        _token: "{{ csrf_token() }}"
+                    },
+                    success: function(data) {
+                        const d = data.data || {};
+                        $('#edit_id').val(d.id || id);
+                        const cl = d.customer_ledger || {};
+                        ensureEditDatePickersInitialized();
+
+                        const voucherType = d.type || '';
+                        const paymentType = Number(cl.payment_type || 1);
+                        const passingStatus = cl.passing_status;
+                        let amount = Number(d.amount_display || 0);
+
+                        applyEditVoucherTheme(d.type);
+                        $("#edit_voucher_number").val(d.voucher_number_display || '');
+                        $("#edit_voucher_type").val(voucherType);
+                        setDateInputValue('#edit_date', d.date);
+                        $("#edit_amount").val(amount);
+                        $("#edit_detail").val(d.detail ?? '');
+                        $('#eWordingAmount').text(numberToWords.toWords(amount));
+
+                        let eAccTypeSelect = $('#edit_acct_type')[0]?.tomselect;
+                        let eAccSelect = $('#edit_accounts_id')[0]?.tomselect;
+                        let eSubAccSelect = $('#edit_subaccounts_id')[0]?.tomselect;
+                        let eTypeSelect = $('#edit_payment_type')[0]?.tomselect;
+                        let eBankSelect = $('#edit_bank_id')[0]?.tomselect;
+                        let eStatusSelect = $('#edit_passing_status')[0]?.tomselect;
+
+                        const accountTypeId = String(d.account_type_id || '');
+                        const headId = String(d.head_accounting_id || '');
+                        const subheadId = String(d.subhead_accounting_id || '');
+
+                        if (eAccTypeSelect && accountTypeId) {
+                            eAccTypeSelect.setValue(accountTypeId, true);
+                        }
+
+                        loadEditAccountsByType(accountTypeId).done(function(accountsData) {
+                            if (eAccSelect) {
+                                eAccSelect.clear(true);
+                                eAccSelect.clearOptions();
+                                $.each(accountsData, function(key, value) {
+                                    eAccSelect.addOption({
+                                        value: value.head_accounting_id,
+                                        text: value.head_accounting.name
+                                    });
+                                });
+                                eAccSelect.refreshOptions(false);
+                                eAccSelect.setValue(headId, true);
+                            }
+                            loadEditSubaccountsByHead(headId).done(function(subData) {
+                                if (eSubAccSelect) {
+                                    eSubAccSelect.clear(true);
+                                    eSubAccSelect.clearOptions();
+                                    let filteredData = $.grep(subData, function(item) {
+                                        return String(item.head_accounting_id) === String(headId);
+                                    });
+                                    $.each(filteredData, function(key, value) {
+                                        eSubAccSelect.addOption({
+                                            value: value.subhead_accounting_id,
+                                            text: value.subhead_accounting.name + ' — Balance: ' + value.balance
+                                        });
+                                    });
+                                    eSubAccSelect.refreshOptions(false);
+                                    eSubAccSelect.setValue(subheadId, true);
+                                }
+                            }).always(function() {
+                                if (eTypeSelect) {
+                                    eTypeSelect.setValue(String(paymentType), true);
+                                }
+                                $('#edit_t_number').val(cl.t_number || '');
+                                setDateInputValue('#edit_passing_date', cl.passing_date);
+                                console.log('edit modal date mapping', {
+                                    voucher_date: d.date,
+                                    passing_date_from_response: cl.passing_date,
+                                    normalized_passing_date: normalizeDateForInput(cl.passing_date),
+                                    field_value_after_set: $('#edit_passing_date').val()
+                                });
+                                if (eBankSelect && cl.bank_id) {
+                                    eBankSelect.setValue(String(cl.bank_id), true);
+                                }
+                                if (eStatusSelect && passingStatus !== null && passingStatus !== undefined && String(passingStatus) !== '') {
+                                    eStatusSelect.setValue(String(passingStatus), true);
+                                }
+                                syncEditPaymentFields(paymentType, passingStatus);
+                                $('#edit-update-button').prop('disabled', false).text('Update');
+                                $('#modal-loading').modal('hide');
+                                $('#modal-edit').modal({
+                                    backdrop: 'static',
+                                    keyboard: false,
+                                    show: true
+                                });
+                            });
+                        }).fail(function() {
+                            if (eTypeSelect) {
+                                eTypeSelect.setValue(String(paymentType), true);
+                            }
+                            $('#edit_t_number').val(cl.t_number || '');
+                            setDateInputValue('#edit_passing_date', cl.passing_date);
+                            console.log('edit modal date mapping', {
+                                voucher_date: d.date,
+                                passing_date_from_response: cl.passing_date,
+                                normalized_passing_date: normalizeDateForInput(cl.passing_date),
+                                field_value_after_set: $('#edit_passing_date').val()
+                            });
+                            if (eBankSelect && cl.bank_id) {
+                                eBankSelect.setValue(String(cl.bank_id), true);
+                            }
+                            if (eStatusSelect && passingStatus !== null && passingStatus !== undefined && String(passingStatus) !== '') {
+                                eStatusSelect.setValue(String(passingStatus), true);
+                            }
+                            syncEditPaymentFields(paymentType, passingStatus);
+                            $('#edit-update-button').prop('disabled', false).text('Update');
+                            $('#modal-loading').modal('hide');
+                            $('#modal-edit').modal({
+                                backdrop: 'static',
+                                keyboard: false,
+                                show: true
+                            });
+                        });
+                    },
+                    error: function(xhr) {
+                        $('#modal-loading').modal('hide');
+                        $('#edit-update-button').prop('disabled', false).text('Update');
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Unable to load voucher',
+                            text: xhr?.responseJSON?.message || 'Failed to open voucher for edit.'
+                        });
+                    }
+                });
+            });
+
+            $(document).on("click", '.btn-delete', function() {
+                let id = $(this).attr("data-id");
+                let name = $(this).attr("data-name");
+                $("#did").val(id);
+                cashVoucherIsDeleting = false;
+                setDeleteModalProcessing($('#modal-delete'), false);
+                $('#modal-delete').modal({
+                    backdrop: 'static',
+                    keyboard: false,
+                    show: true
+                });
+            });
+
+            let cashVoucherIsDeleting = false;
+
+            function setDeleteModalProcessing($modal, isProcessing, message = null) {
+                const $text = $modal.find('.modal-text');
+                const defaultText = $text.data('default-text') || 'Are you sure you want to delete?';
+                const $submitButton = $modal.find('button[type="submit"]');
+                const $closeButtons = $modal.find('[data-dismiss="modal"], .close, .btn-default');
+
+                if (!$submitButton.data('default-html')) {
+                    $submitButton.data('default-html', $submitButton.html());
+                }
+
+                if (isProcessing) {
+                    $submitButton
+                        .prop('disabled', true)
+                        .html('<span class="spinner-border spinner-border-sm mr-1"></span> Checking ledger...');
+                    $closeButtons.prop('disabled', true);
+                    $text.text(message || 'Checking voucher status in ledger. Please wait...');
+                    return;
+                }
+
+                $submitButton
+                    .prop('disabled', false)
+                    .html($submitButton.data('default-html') || 'Yes');
+                $closeButtons.prop('disabled', false);
+                $text.html(defaultText + ' <b id="delete-data"></b>');
+            }
+
+            $('#cashVoucherDeleteForm').on('submit', function(e) {
+                e.preventDefault();
+
+                if (cashVoucherIsDeleting) {
+                    return;
+                }
+
+                const $form = $(this);
+                const $modal = $('#modal-delete');
+                cashVoucherIsDeleting = true;
+
+                setDeleteModalProcessing($modal, true);
+
+                $.ajax({
+                    url: $form.attr('action'),
+                    type: 'POST',
+                    dataType: 'json',
+                    headers: {
+                        'Accept': 'application/json'
+                    },
+                    data: $form.serialize(),
+                    success: function(response) {
+                        $('#modal-delete').modal('hide');
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Deleted',
+                            text: response?.message || 'Voucher deleted successfully.'
+                        });
+
+                        if ($.fn.DataTable.isDataTable('#table-data')) {
+                            $('#table-data').DataTable().ajax.reload(null, false);
+                        } else {
+                            window.location.reload();
+                        }
+                    },
+                    error: function(xhr) {
+                        const response = xhr?.responseJSON || {};
+                        const isPostedBlock = response?.error_key === 'voucher_posted_to_ledger';
+
+                        Swal.fire({
+                            icon: isPostedBlock ? 'warning' : 'error',
+                            title: isPostedBlock ? 'Cannot Delete' : 'Delete Failed',
+                            text: isPostedBlock
+                                ? 'Cannot delete this voucher because it has already been posted to the ledger.'
+                                : (response?.message || 'Unable to delete voucher.')
+                        });
+                    },
+                    complete: function() {
+                        setDeleteModalProcessing($modal, false);
+                        cashVoucherIsDeleting = false;
+                    }
+                });
+            });
+
+            $('#numberInput').on('input change', function() {
+                const value = $(this).val();
+                if (parseAmountForWords(value) === null) {
+                    clearAmountWords();
+                    return;
+                }
+                convertToWords(value);
+            });
+            $('#edit_amount').on('input', function() {
+                eConvertToWords();
+            });
+
+            $('#edit-voucher-form').on('submit', function(e) {
+                e.preventDefault();
+                const $btn = $('#edit-update-button');
+                const paymentType = String($('#edit_payment_type').val() || '');
+                const payload = {
+                    _token: '{{ csrf_token() }}',
+                    _method: 'PUT',
+                    id: $('#edit_id').val(),
+                    date: $('#edit_date').val(),
+                    accounts_id: $('#edit_accounts_id').val(),
+                    subaccounts_id: $('#edit_subaccounts_id').val(),
+                    amount: $('#edit_amount').val(),
+                    detail: $('#edit_detail').val(),
+                    payment_type: paymentType,
+                    t_number: $('#edit_t_number').val(),
+                    bank_id: $('#edit_bank_id').val(),
+                    passing_date: $('#edit_passing_date').val(),
+                    passing_status: $('#edit_passing_status').val()
+                };
+                if (!payload.passing_status && payload.passing_status !== 0) {
+                    delete payload.passing_status;
+                }
+
+                if (!payload.amount || Number(String(payload.amount).replace(/,/g, '')) <= 0) {
+                    Swal.fire({ icon: 'warning', title: 'Validation error', text: 'Amount is required.' });
+                    return;
+                }
+                if (!payload.accounts_id) {
+                    Swal.fire({ icon: 'warning', title: 'Validation error', text: 'Account is required.' });
+                    return;
+                }
+                if (!payload.subaccounts_id) {
+                    Swal.fire({ icon: 'warning', title: 'Validation error', text: 'Child account is required.' });
+                    return;
+                }
+                if (!payload.detail) {
+                    Swal.fire({ icon: 'warning', title: 'Validation error', text: 'Detail is required.' });
+                    return;
+                }
+                if (!paymentType) {
+                    Swal.fire({ icon: 'warning', title: 'Validation error', text: 'Payment type is required.' });
+                    return;
+                }
+                if ((paymentType === '2' || paymentType === '3') && (!payload.t_number || !payload.bank_id || !payload.passing_date)) {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Validation error',
+                        text: 'Number, bank and passing date are required for Online/Check.'
+                    });
+                    return;
+                }
+
+                $btn.prop('disabled', true).text('Updating...');
+                $.ajax({
+                    url: "{{ route('ledger.update') }}",
+                    type: "POST",
+                    dataType: "JSON",
+                    data: payload,
+                    success: function(response) {
+                        $('#modal-edit').modal('hide');
+                        $('#table-data').DataTable().ajax.reload(null, false);
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Updated',
+                            text: response?.message || 'Voucher updated successfully.'
+                        });
+                    },
+                    error: function(xhr) {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Update failed',
+                            text: xhr?.responseJSON?.message || 'Unable to update voucher.'
+                        });
+                    },
+                    complete: function() {
+                        $btn.prop('disabled', false).text('Update');
+                    }
+                });
+            });
+            $(document).on("click", "#submit-button", function(e) {
+                e.preventDefault();
+                let isValid = true;
+                let messages = [];
+
+                // Helper function
+                function checkField(selector, message, extraCheck = null) {
+                    let $field = $(selector);
+                    let val = $field.val().trim();
+
+                    if (!val || (extraCheck && !extraCheck(val))) {
+                        isValid = false;
+                        messages.push(message);
+                        $field.addClass("is-invalid");
+                    } else {
+                        $field.removeClass("is-invalid");
+                    }
+                }
+
+                // Validate fields
+                // checkField("[name='reference']", "Reference No is required.");
+                checkField("[name='date']", "Date is required.");
+                checkField("[name='acct_type']", "Account Type is required.");
+                checkField("[name='accounts_id']", "Accounts is required.");
+                checkField("[name='subaccounts_id']", "Child Account is required.");
+                checkField("[name='detail']", "Details are required.");
+
+                // Amount special check
+                checkField("[name='amount']", "Valid amount is required.", function(val) {
+                    val = val.replace(/,/g, ""); // remove commas
+                    return !isNaN(val) && parseFloat(val) > 0;
+                });
+
+                const voucherVisible = String($("[name='voucher_number']").val() || '');
+                const voucherHidden = String($("[name='voucher']").val() || '');
+                const voucherRegex = /^(CR|CP)-\d+$/;
+                const visibleMatch = voucherVisible.match(voucherRegex);
+                const hiddenMatch = voucherHidden.match(voucherRegex);
+                if (!visibleMatch || !hiddenMatch || visibleMatch[1] !== hiddenMatch[1] || visibleMatch[1] !== @json($voucherType)) {
+                    isValid = false;
+                    messages.push("Invalid voucher number. Please refresh and try again.");
+                }
+
+                const accountId = String($("[name='accounts_id']").val() || '');
+                const subAccountId = String($("[name='subaccounts_id']").val() || '');
+                const accountSelect = document.getElementById('accounts_id');
+                const subAccountSelect = document.getElementById('subaccounts_id');
+                const accountExists = accountSelect?.tomselect?.options?.[accountId];
+                const subAccountExists = subAccountSelect?.tomselect?.options?.[subAccountId];
+                if (!accountId || !subAccountId || !accountExists || !subAccountExists) {
+                    isValid = false;
+                    messages.push("Please reselect Account and Child Account.");
+                }
+
+                if (!isValid) {
+                    e.preventDefault();
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Validation error',
+                        text: messages[0] || 'Please review your input and try again.'
+                    });
+                    return;
+                } else {
+                    $('#confirmedModal').modal('show');
+                }
+            });
+
+
+        });
+
+        function parseAmountForWords(value) {
+            const clean = String(value ?? '').replace(/,/g, '').trim();
+            if (clean === '') return null;
+            const number = Number(clean);
+            if (!Number.isFinite(number)) return null;
+            return number;
+        }
+
+        function clearAmountWords() {
+            $('#wordingAmount').text('');
+        }
+
+        function convertToWords(value) {
+            var numberInput = value;
+            if (numberInput === undefined) {
+                numberInput = document.getElementById('numberInput')?.value;
+            }
+
+            var numericValue = parseAmountForWords(numberInput);
+            var wordingTarget = document.getElementById('wordingAmount');
+
+            if (numericValue === null || numericValue <= 0) {
+                clearAmountWords();
+                return;
+            }
+
+            if (!wordingTarget) {
+                return;
+            }
+
+            var wordingAmount = numberToWords.toWords(numericValue);
+            wordingTarget.innerText = wordingAmount;
+        }
+
+        function eConvertToWords() {
+            var numberInput = document.getElementById('edit_amount').value;
+
+            var numericValue = numberInput.replace(/,/g, '');
+
+            var wordingAmount = numberToWords.toWords(numericValue);
+
+            document.getElementById('eWordingAmount').innerText = wordingAmount;
+        }
+
+        function formatAmount(input) {
+            let value = input.value.replace(/[^0-9]/g, '').replace(/^0+/, '');
+
+            value = value.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+            input.value = value;
+        }
+
+        // Voucher Tab Management with LocalStorage + full Tom Select option persistence
+        // Voucher Tabs with reliable saving on tab switch + new tab, including Tom Select options
+        (async function($) {
+            const FORM_ID = '#voucherForm';
+            const TS_SEL = '.js-tomselect';
+            const VOUCHER_TYPE = @json($voucherType);
+            const INITIAL_VOUCHER_NUMBER = @json((int) ($latest_voucher_number ?? 1));
+            const VOUCHER_STORAGE_KEY = `bluemarketing_voucher_tabs_${VOUCHER_TYPE}_${window.location.pathname}_v3`;
+
+            function buildVoucherDisplay(number) {
+                return `${VOUCHER_TYPE}-${number}`;
+            }
+
+            function setVoucherNumber(number) {
+                const safeNumber = Math.max(1, parseInt(number, 10) || 1);
+                const display = buildVoucherDisplay(safeNumber);
+                $('#voucher_number').val(display);
+                $('input[name="voucher"]').val(display);
+            }
+
+            function parseVoucherNumber(value) {
+                if (typeof value !== 'string') return null;
+                if (value.includes('{') || value.includes('}') || value.includes('&quot;')) return null;
+                const match = value.match(/^(CR|CP)-(\d+)$/);
+                if (!match || match[1] !== VOUCHER_TYPE) return null;
+                return parseInt(match[2], 10);
+            }
+
+            // ---------- TomSelect init ----------
+            function initTomSelects() {
+                if (typeof window.TomSelect === 'undefined') {
+                    console.warn('TomSelect not found. Skipping initTomSelects().');
+                    return;
+                }
+                $(TS_SEL).each(function() {
+                    const selectEl = this;
+                    if (this.tomselect) {
+                        try {
+                            this.tomselect.destroy();
+                        } catch (e) {}
+                    }
+                    const ts = new TomSelect(this, {
+                        persist: false,
+                        create: false,
+                        maxItems: 1,
+                        allowEmptyOption: true,
+                        onChange: function () {
+                            $(selectEl).trigger('change');
+                        }
+                    });
+                    const current = $(this).val();
+                    if (current != null && current !== '') {
+                        try {
+                            ts.setValue(String(current), true);
+                        } catch (e) {}
+                    }
+                });
+            }
+
+            // ---------- store & pointers ----------
+            let store = {
+                tabs: {
+                    1: {
+                        formData: {},
+                        selects: {}
+                    }
+                },
+                currentTab: 1,
+                nextTabNumber: 2
+            };
+            let currentTab = 1;
+            let nextTabNumber = 2;
+
+            // ---------- utils ----------
+            const persist = () => localStorage.setItem(VOUCHER_STORAGE_KEY, JSON.stringify(store));
+
+            const hydrate = () => {
+                try {
+                    localStorage.removeItem(`bluemarketing_${'{{ getSelectedTown() }}'}_voucher_tabs_${VOUCHER_TYPE}_v1`);
+                    localStorage.removeItem(`bluemarketing_voucher_tabs_${VOUCHER_TYPE}_${window.location.pathname}_v2`);
+                    const raw = localStorage.getItem(VOUCHER_STORAGE_KEY);
+                    if (!raw) return;
+                    const parsed = JSON.parse(raw);
+                    if (parsed && parsed.tabs) {
+                        const tabKeys = Object.keys(parsed.tabs || {});
+                        for (const tabKey of tabKeys) {
+                            const storedVoucher = parsed.tabs?.[tabKey]?.formData?.voucher_number ?? '';
+                            if (storedVoucher && parseVoucherNumber(storedVoucher) === null) {
+                                localStorage.removeItem(VOUCHER_STORAGE_KEY);
+                                return;
+                            }
+                            const accountId = parsed.tabs?.[tabKey]?.formData?.accounts_id ?? '';
+                            const subAccountId = parsed.tabs?.[tabKey]?.formData?.subaccounts_id ?? '';
+                            if ((accountId && !subAccountId) || (!accountId && subAccountId)) {
+                                parsed.tabs[tabKey].formData.accounts_id = '';
+                                parsed.tabs[tabKey].formData.subaccounts_id = '';
+                            }
+                            // Do not blindly restore account/subaccount; force validated re-selection.
+                            parsed.tabs[tabKey].formData.accounts_id = '';
+                            parsed.tabs[tabKey].formData.subaccounts_id = '';
+                            if (parsed.tabs?.[tabKey]?.selects?.accounts_id) {
+                                parsed.tabs[tabKey].selects.accounts_id.selected = '';
+                            }
+                            if (parsed.tabs?.[tabKey]?.selects?.subaccounts_id) {
+                                parsed.tabs[tabKey].selects.subaccounts_id.selected = '';
+                            }
+                        }
+                        store = parsed;
+                        currentTab = store.currentTab || 1;
+                        nextTabNumber = store.nextTabNumber || 2;
+                    }
+                } catch (e) {
+                    console.warn('hydrate failed', e);
+                }
+            };
+
+            const ensureTab = (n) => {
+                if (!store.tabs[n]) store.tabs[n] = {
+                    formData: {},
+                    selects: {}
+                };
+            };
+
+            function throttle(fn, wait) {
+                let t, last = 0,
+                    pending = null;
+                return function() {
+                    const now = Date.now();
+                    const args = arguments,
+                        ctx = this;
+                    const run = () => {
+                        last = now;
+                        t = null;
+                        fn.apply(ctx, args);
+                    };
+                    if (now - last >= wait) {
+                        if (t) {
+                            clearTimeout(t);
+                            t = null;
+                        }
+                        run();
+                    } else {
+                        pending = () => run();
+                        if (!t) t = setTimeout(() => {
+                            pending && pending();
+                            pending = null;
+                        }, wait - (now - last));
+                    }
+                };
+            }
+
+            // ---------- snapshot (TomSelect-aware) ----------
+            function saveFormForTab(tabNo, $form) {
+                ensureTab(tabNo);
+                const formData = {};
+                const selects = {};
+
+                // inputs + textarea
+                $form.find('input, textarea').each(function() {
+                    const name = $(this).attr('name');
+                    if (!name) return;
+                    formData[name] = $(this).val();
+                });
+
+                // selects
+                $form.find('select').each(function() {
+                    const $el = $(this);
+                    const name = $el.attr('name');
+                    if (!name) return;
+
+                    let options = [];
+                    let selected = '';
+
+                    if ($el[0] && $el[0].tomselect) {
+                        const ts = $el[0].tomselect;
+                        selected = (ts.getValue && ts.getValue()) || '';
+                        // Pull options from TomSelect cache
+                        options = Object.values(ts.options || {}).map(o => ({
+                            value: String(o.value ?? ''),
+                            text: String(o.text ?? ''),
+                            disabled: !!o.disabled
+                        }));
+                        // If TomSelect has no cache (edge case), fallback to DOM
+                        if (!options.length) {
+                            $el.find('option').each(function() {
+                                options.push({
+                                    value: $(this).attr('value') ?? '',
+                                    text: $(this).text(),
+                                    disabled: !!$(this).prop('disabled')
+                                });
+                            });
+                        }
+                    } else {
+                        selected = $el.val() ?? '';
+                        $el.find('option').each(function() {
+                            options.push({
+                                value: $(this).attr('value') ?? '',
+                                text: $(this).text(),
+                                disabled: !!$(this).prop('disabled')
+                            });
+                        });
+                    }
+
+                    selects[name] = {
+                        options,
+                        selected: selected === null ? '' : String(selected)
+                    };
+                    formData[name] = selected;
+                });
+
+                store.tabs[tabNo].formData = formData;
+                store.tabs[tabNo].selects = selects;
+                store.currentTab = currentTab;
+            }
+
+            function withTomSelect($el, fn) {
+                if ($el[0] && $el[0].tomselect) {
+                    fn($el[0].tomselect);
+                }
+            }
+
+            // ---------- restore ----------
+            function restoreSelect($el, snap) {
+                if (!$el.length || !snap) return;
+                const selected = snap.selected ?? '';
+                const snapOpts = snap.options || [];
+
+                if ($el[0] && $el[0].tomselect) {
+                    const ts = $el[0].tomselect;
+
+                    // If snapshot has options, rebuild; otherwise keep existing options
+                    if (snapOpts.length) {
+                        ts.clear(true);
+                        ts.clearOptions();
+                        snapOpts.forEach(o => ts.addOption({
+                            value: String(o.value ?? ''),
+                            text: String(o.text ?? '')
+                        }));
+                        ts.refreshOptions(false);
+                    } else {
+                        // Attempt to populate from DOM if TomSelect has no options
+                        if (!Object.keys(ts.options || {}).length) {
+                            const domOpts = [];
+                            $el.find('option').each(function() {
+                                domOpts.push({
+                                    value: $(this).attr('value') ?? '',
+                                    text: $(this).text()
+                                });
+                            });
+                            if (domOpts.length) {
+                                domOpts.forEach(o => ts.addOption({
+                                    value: String(o.value ?? ''),
+                                    text: String(o.text ?? '')
+                                }));
+                                ts.refreshOptions(false);
+                            }
+                        }
+                    }
+
+                    if (selected !== '') {
+                        try {
+                            ts.setValue(String(selected), true);
+                        } catch (e) {}
+                    } else {
+                        ts.clear(true);
+                    }
+                } else {
+                    // Native select path
+                    if (snapOpts.length) {
+                        $el.empty();
+                        snapOpts.forEach(o => $el.append(
+                            $('<option/>').attr('value', o.value ?? '').prop('disabled', !!o.disabled).text(
+                                o.text ?? '')
+                        ));
+                    }
+                    if (selected !== '') $el.val(String(selected));
+                }
+            }
+
+            function resetFormUI($form) {
+                $form[0].reset();
+                $form.find('select').each(function() {
+                    const $el = $(this);
+                    if ($el[0].tomselect) {
+                        $el[0].tomselect.clear(true);
+                    }
+                });
+            }
+
+            function cssEscape(s) {
+                return String(s).replace(/"/g, '\\"');
+            }
+
+            function loadFormForTab(tabNo) {
+                ensureTab(tabNo);
+                const {
+                    formData = {}, selects = {}
+                } = store.tabs[tabNo];
+                const $form = $(FORM_ID);
+
+                // Reset once, then restore
+                resetFormUI($form);
+
+                // restore selects first
+                Object.keys(selects).forEach(name => {
+                    restoreSelect($form.find(`[name="${cssEscape(name)}"]`), selects[name]);
+                });
+
+                // restore other fields
+                Object.keys(formData).forEach(name => {
+                    const $el = $form.find(`[name="${cssEscape(name)}"]`);
+                    if (!$el.length) return;
+
+                    if ($el.is('select') && $el[0].tomselect) {
+                        withTomSelect($el, ts => {
+                            const value = formData[name];
+                            const isPaymentType = $el.attr('id') ===
+                                'payment_type'; // 👈 detect payment_type select
+
+                            if (value !== undefined && value !== null && value !== '') {
+                                try {
+                                    ts.setValue(String(value), true);
+                                } catch (e) {}
+
+                                // 👇 special handling for payment_type field
+                                if (isPaymentType) {
+                                    if (String(value) !== '1') {
+                                        $('.bank_group').css('display', 'block');
+                                    } else {
+                                        $('.bank_group').css('display', 'none');
+                                    }
+                                }
+                            } else {
+                                ts.clear(true);
+
+                                // 👇 also handle payment_type when no value
+                                if (isPaymentType) {
+                                    $('.bank_group').css('display', 'none');
+                                }
+                            }
+                        });
+                    } else if ($el.hasClass('voucher-date') || $el.hasClass('passing_date')) {
+                        let val = formData[name] ?? '';
+                        if (val) {
+                            const d = new Date(val);
+                            if (!isNaN(d)) val = d.toISOString().split('T')[0];
+                        }
+                        flatpickr($el.get(0), {
+                            enableTime: false,
+                            dateFormat: "Y-m-d",
+                            altInput: true,
+                            altFormat: "F j, Y",
+                            defaultDate: val,
+                            onChange: function(selectedDates, dateStr) {
+                                const hidden = document.getElementById('hiddenDate');
+                                if (hidden) hidden.value = dateStr;
+                            }
+                        });
+                    } else {
+                        $el.val(formData[name] ?? '');
+                    }
+                });
+
+                const parsedVoucherNumber = parseVoucherNumber($('#voucher_number').val());
+                if (parsedVoucherNumber !== null) {
+                    setVoucherNumber(parsedVoucherNumber);
+                }
+
+                const currentAccount = $('#accounts_id')[0]?.tomselect?.getValue();
+                const currentSubAccount = $('#subaccounts_id')[0]?.tomselect?.getValue();
+                if (currentAccount && !optionExists('accounts_id', currentAccount)) {
+                    $('#accounts_id')[0]?.tomselect?.clear(true);
+                    $('#subaccounts_id')[0]?.tomselect?.clear(true);
+                    $('#subaccounts_id')[0]?.tomselect?.clearOptions();
+                    clearPartyInfo();
+                }
+                if (currentSubAccount && !optionExists('subaccounts_id', currentSubAccount)) {
+                    $('#subaccounts_id')[0]?.tomselect?.clear(true);
+                    clearPartyInfo();
+                }
+            }
+
+            function rebuildTabsUI() {
+                const $wrap = $('#voucher-tabs').empty();
+                const nums = Object.keys(store.tabs).map(n => parseInt(n, 10)).sort((a, b) => a - b);
+                nums.forEach(n => {
+                    const isActive = (n === store.currentTab);
+                    $wrap.append(`
+                                <div class="voucher-tab-wrapper position-relative">
+                                  <button class="btn {{ $theme['secondary'] }} btn-sm voucher-tab ${isActive ? 'active' : ''}" data-tab="${n}">Voucher#${n}</button>
+                                  ${n === 1 ? '' : `<button class="voucher-tab-remove" data-tab="${n}" title="Remove Tab"><i class="fas fa-times"></i></button>`}
+                                </div>
+                              `);
+                });
+                currentTab = store.currentTab || 1;
+                nextTabNumber = store.nextTabNumber || (nums.length ? Math.max(...nums) + 1 : 2);
+            }
+
+            // ---------- Reindex tabs 1..N ----------
+            function reindexTabs() {
+                const nums = Object.keys(store.tabs).map(n => parseInt(n, 10)).sort((a, b) => a - b);
+                const newTabs = {};
+                let i = 1;
+                nums.forEach(oldNum => {
+                    newTabs[i++] = store.tabs[oldNum];
+                });
+                store.tabs = newTabs;
+
+                const count = Object.keys(newTabs).length;
+                store.currentTab = Math.min(store.currentTab, count) || 1;
+                store.nextTabNumber = count + 1;
+
+                currentTab = store.currentTab;
+                nextTabNumber = store.nextTabNumber;
+
+                persist();
+                rebuildTabsUI();
+            }
+
+            // ---------- loaders ----------
+            function showFormCardLoader() {
+                $('#form-card-loader').show();
+            }
+
+            function hideFormCardLoader() {
+                $('#form-card-loader').hide();
+            }
+
+            function switchToTab(tabNo, opts = {}) {
+                const {
+                    ensureSaved = false
+                } = opts;
+                const $form = $(FORM_ID);
+
+                if (ensureSaved) {
+                    const prevTab = currentTab;
+                    saveFormForTab(prevTab, $form);
+                    persist();
+                }
+
+                currentTab = tabNo;
+                store.currentTab = tabNo;
+
+                $('.voucher-tab').removeClass('active');
+                $(`.voucher-tab[data-tab="${tabNo}"]`).addClass('active');
+
+                loadFormForTab(tabNo);
+                persist();
+            }
+
+            // ---------- BOOT ORDER (fixed) ----------
+            hydrate();
+            initTomSelects(); // 1) have TomSelect instances ready
+            rebuildTabsUI(); // 2) render the tab buttons
+            loadFormForTab(currentTab); // 3) restore snapshot into widgets (no extra reset)
+            const restoredVoucherNumber = parseVoucherNumber($('#voucher_number').val());
+            if (restoredVoucherNumber === null) {
+                setVoucherNumber(INITIAL_VOUCHER_NUMBER);
+            } else {
+                setVoucherNumber(restoredVoucherNumber);
+            }
+            if (typeof window.syncPendingPanelFromPaymentType === 'function') {
+                setTimeout(window.syncPendingPanelFromPaymentType, 0);
+            }
+            persist();
+
+            // Snapshot once if empty (first run) so reload has data
+            (function primeSnapshotIfEmpty() {
+                const tab = store.tabs[currentTab] || {};
+                const empty = !tab.selects || Object.keys(tab.selects).length === 0;
+                if (empty) {
+                    saveFormForTab(currentTab, $(FORM_ID));
+                    persist();
+                }
+            })();
+
+            // ---------- Add voucher tab ----------
+            $('#add-new-voucher-btn').off('click').on('click', function(e) {
+                e.preventDefault();
+                showFormCardLoader();
+
+                const voucher_val = $("#voucher_number").val();
+                const voucher_num = (parseVoucherNumber(voucher_val) ?? INITIAL_VOUCHER_NUMBER) + 1;
+
+                const data = {
+                    type: VOUCHER_TYPE,
+                    number: voucher_num,
+                    _token: '{{ csrf_token() }}'
+                };
+
+                callAjax(
+                    "{{ route('check_new_voucher_number') }}",
+                    '{{ csrf_token() }}',
+                    'POST',
+                    data,
+                    function(data) {
+                        const nextVoucherNumber = data.latest_voucher_number;
+                        hideFormCardLoader();
+
+                        const $form = $(FORM_ID);
+                        const prevTab = currentTab;
+                        saveFormForTab(prevTab, $form);
+                        persist();
+
+                        const newNo = store.nextTabNumber || (Object.keys(store.tabs).length + 1);
+                        store.tabs[newNo] = {
+                            formData: {},
+                            selects: {}
+                        };
+                        store.currentTab = newNo;
+                        store.nextTabNumber = newNo + 1;
+                        currentTab = newNo;
+                        nextTabNumber = store.nextTabNumber;
+                        persist();
+
+                        $('#submit-button').attr('tab-number', newNo);
+                        resetFormUI($form);
+
+                        rebuildTabsUI();
+                        switchToTab(newNo, {
+                            ensureSaved: false
+                        });
+
+                        setVoucherNumber(nextVoucherNumber);
+                        $("#voucher_number").trigger('input').trigger('change');
+
+                        flatpickr('.date', {
+                            enableTime: false,
+                            dateFormat: "Y-m-d",
+                            altInput: true,
+                            altFormat: "F j, Y",
+                            defaultDate: "{{ session('last_submit_date', now()) }}",
+                            onChange: function(selectedDates, dateStr) {
+                                const hidden = document.getElementById('hiddenDate');
+                                if (hidden) hidden.value = dateStr;
+                            }
+                        });
+                    },
+                    true
+                );
+            });
+
+            // ---------- Tab click ----------
+            $(document).on('click', '.voucher-tab', function() {
+                const to = parseInt($(this).data('tab'), 10);
+                $('#submit-button').attr('tab-number', to);
+                if (to === currentTab) return;
+
+                showFormCardLoader();
+                switchToTab(to, {
+                    ensureSaved: true
+                });
+                hideFormCardLoader();
+            });
+
+            // ---------- Remove tab ----------
+            $(document).on('click', '.voucher-tab-remove', function(e) {
+                e.stopPropagation();
+                const tabNo = parseInt($(this).data('tab'), 10);
+                removeTab(tabNo);
+            });
+
+            function removeTab(tabNo) {
+                showFormCardLoader();
+
+                delete store.tabs[tabNo];
+
+                const remaining = Object.keys(store.tabs).map(n => parseInt(n, 10)).sort((a, b) => a - b);
+                if (!remaining.length) {
+                    store.tabs = {
+                        1: {
+                            formData: {},
+                            selects: {}
+                        }
+                    };
+                }
+                if (!store.tabs[currentTab]) {
+                    store.currentTab = remaining[0] || 1;
+                    currentTab = store.currentTab;
+                }
+
+                reindexTabs();
+                switchToTab(store.currentTab, {
+                    ensureSaved: false
+                });
+
+                const tabCount = Object.keys(store.tabs).length;
+                if (tabCount === 1) {
+                    callAjax(
+                        "{{ route('check_new_voucher_number') }}",
+                        '{{ csrf_token() }}',
+                        'POST', {
+                            type: VOUCHER_TYPE,
+                            number: 1,
+                            _token: '{{ csrf_token() }}'
+                        },
+                        function(data) {
+                            const nextVoucherNumber = data.latest_voucher_number;
+                            setVoucherNumber(nextVoucherNumber);
+                            $("#voucher_number").trigger('change');
+                            hideFormCardLoader();
+                        },
+                        true,
+                        function() {
+                            hideFormCardLoader();
+                        }
+                    );
+                } else {
+                    hideFormCardLoader();
+                }
+            }
+            $(document).on('click', '#clear-vouchers', function(e) {
+                e.preventDefault();
+
+                Swal.fire({
+                    title: 'Are you sure?',
+                    text: "This will clear all vouchers except the first one.",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#3085d6',
+                    confirmButtonText: 'Yes, clear all!'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        try {
+                            // 🔹 1. Remove all voucher tabs except the first one
+                            $('.voucher-tab-wrapper').not(':first').remove();
+
+                            // 🔹 2. Clear the first voucher's form
+                            const $form = $('#voucherForm');
+                            $form.trigger('reset');
+
+                            // If you use TomSelect or flatpickr, reset them too
+                            $form.find('select').each(function() {
+                                if (this.tomselect) this.tomselect.clear(true);
+                            });
+
+                            // Reset date fields (flatpickr)
+                            if (typeof flatpickr !== 'undefined') {
+                                $form.find('.date').each(function() {
+                                    const picker = this._flatpickr;
+                                    if (picker) picker.clear();
+                                });
+                            }
+                            flatpickr('.date', {
+                                enableTime: false,
+                                dateFormat: "Y-m-d",
+                                altInput: true,
+                                altFormat: "F j, Y",
+                                defaultDate: "{{ session('last_submit_date', now()) }}",
+                                onChange: function(selectedDates, dateStr) {
+                                    const hidden = document.getElementById(
+                                        'hiddenDate');
+                                    if (hidden) hidden.value = dateStr;
+                                }
+                            });
+
+                            // 🔹 3. Clear all stored voucher data from localStorage
+                            // localStorage.removeItem('store'); // or whatever your LS_KEY is
+                            // localStorage.removeItem('tabs');
+                            // localStorage.removeItem('nextTabNumber');
+                            // localStorage.removeItem('currentTab');
+                            localStorage.removeItem(VOUCHER_STORAGE_KEY);
+                            // Or to wipe all (careful, only if safe):
+                            // localStorage.clear();
+
+                            // 🔹 4. Reset your in-memory store object if you use one
+                            if (typeof store !== 'undefined') {
+                                store.tabs = {
+                                    1: {
+                                        formData: {},
+                                        selects: {}
+                                    }
+                                };
+                                store.nextTabNumber = 2;
+                            }
+
+                            setVoucherNumber(INITIAL_VOUCHER_NUMBER);
+
+                            // ✅ Success message
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Cleared!',
+                                text: `All ${VOUCHER_TYPE} vouchers cleared except the first one.`,
+                            });
+
+                            // If you have a function to persist the store
+                            if (typeof persist === 'function') persist();
+
+                            // Optional: switch back to first tab
+                            $('.voucher-tab').removeClass('active');
+                            $('.voucher-tab[data-tab="1"]').addClass('active');
+                            $('.bank_group').css('display', 'none');
+                            return
+                            if (typeof switchToTab === 'function') switchToTab(1);
+                        } catch (err) {
+                            console.error('Error clearing vouchers:', err);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Error',
+                                text: 'Something went wrong while clearing vouchers.'
+                            });
+                        }
+                    }
+                });
+            });
+
+            // ---------- Autosave ----------
+            const autoSave = throttle(function() {
+                const $form = $(FORM_ID);
+                saveFormForTab(currentTab, $form);
+                persist();
+            }, 250);
+
+            function bindAutoSaveEvents() {
+                $(document)
+                    .off('input.voucherAutosave change.voucherAutosave blur.voucherAutosave')
+                    .on('input.voucherAutosave change.voucherAutosave blur.voucherAutosave',
+                        `${FORM_ID} input, ${FORM_ID} textarea, ${FORM_ID} select`, autoSave);
+
+                $(document).off('change.voucherTS').on('change.voucherTS', TS_SEL, autoSave);
+            }
+            bindAutoSaveEvents();
+
+
+            // Submit/save handler
+            $(document).on('click', '#submitForm', function(e) {
+                e.preventDefault();
+
+                const tabNumber = parseInt($('#submit-button').attr('tab-number'), 10) || currentTab;
+                const $form = $('#voucherForm');
+                const paymentType = String($('#payment_type').val() || '');
+                const isCashOutBankFlow = VOUCHER_TYPE === 'CP' && (paymentType === '2' || paymentType === '3');
+                if (isCashOutBankFlow) {
+                    const selectedPendingId = String($('#selected_pending_payment_id').val() || '').trim();
+                    const pendingStatus = String($('#pending_status').val() || '').trim();
+                    const passingDate = String($('#passing_date').val() || '').trim();
+                    const detail = String($('#detail').val() || '').trim();
+                    const selectedPendingRow = (window.pendingRowsCache || []).find((row) => String(row.id) === selectedPendingId);
+                    const submittedAmount = window.normalizePendingMoneyValue($('#numberInput').val());
+                    const pendingAmount = selectedPendingRow ? window.normalizePendingMoneyValue(selectedPendingRow.amount) : null;
+
+                    if (!selectedPendingId) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'Pending voucher required',
+                            text: 'Please select a pending Online/Check voucher before saving.'
+                        });
+                        return;
+                    }
+                    if (!pendingStatus) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'Status required',
+                            text: 'Please select a pending status before saving.'
+                        });
+                        return;
+                    }
+                    if (!passingDate) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'Passing date required',
+                            text: 'Please select passing date before saving.'
+                        });
+                        return;
+                    }
+                    if (!detail) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'Details required',
+                            text: 'Please enter details before saving.'
+                        });
+                        return;
+                    }
+                    if (!selectedPendingRow || !submittedAmount || !pendingAmount || submittedAmount !== pendingAmount) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'Amount mismatch',
+                            text: window.pendingAmountMismatchMessage || 'Amount must match the selected pending voucher.'
+                        });
+                        return;
+                    }
+                }
+                const formData = new FormData($form[0]);
+                formData.append('_token', $('meta[name="csrf-token"]').attr('content'));
+                $.ajaxSetup({
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    }
+                });
+                $.ajax({
+                    url: $form.attr('action'),
+                    type: $form.attr('method') || 'POST',
+                    data: formData,
+                    dataType: "JSON",
+                    processData: false, // required for FormData
+                    contentType: false, // required for FormData
+                    beforeSend: function() {
+                        $('#submitForm').prop('disabled', true).text('Saving...');
+                        $('#submit-button').prop('disabled', true);
+                    },
+                    success: function(response) {
+                        console.log(response, tabNumber);
+
+                        if (response?.flow_type === 'pending_payment_status_updated') {
+                            if (typeof window.resetPendingPaymentsUiAfterProcess === 'function') {
+                                window.resetPendingPaymentsUiAfterProcess(response);
+                            }
+                        }
+
+                        // Remove the saved tab and keep indices contiguous
+                        removeTab(tabNumber);
+                        // reindexTabs();
+
+                        // Refresh table
+                        if (typeof renderDataTable === 'function') {
+                            renderDataTable();
+                        }
+
+                        // Notify + reset form
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Saved!',
+                            text: response?.message || 'Voucher saved successfully.'
+                        });
+                        // $form.trigger('reset');
+
+                        // Optional: clear TomSelect selections visually
+                        // $form.find('select').each(function() {
+                        //     if (this.tomselect) this.tomselect.clear(true);
+                        // });
+                    },
+                    error: function(xhr) {
+                        console.error('❌ Error:', xhr.responseText);
+                        const msg = xhr.responseJSON?.message || 'Something went wrong while saving the voucher.';
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Error',
+                            text: msg
+                        });
+                    },
+                    complete: function() {
+                        $('#confirmedModal').modal('hide');
+                        $('#submitForm').prop('disabled', false).text('Save');
+                        $('#submit-button').prop('disabled', false);
+                    }
+                });
+            });
+            $(document).ready(function() {
+                $('.select2').select2({
+                    placeholder: 'Select options',
+                    allowClear: true,
+                    width: '100'
+                });
+            });
+
+
+            $(document).ready(function() {
+                $('#toggleFilters').on('click', function() {
+                    $('#filtersSection').toggle();
+                });
+                const headAccounts = $('#filter_head_account').val() || [];
+                const subAccounts = $('#filter_subhead_account').val() || [];
+
+                $('#applyFilters').on('click', function() {
+                    isInitialLoad = false; // Enable filters
+                    const head = $('#filter_head_account').val() || [];
+                    const sub = $('#filter_subhead_account').val() || [];
+
+                    const headRegex = head.length ? head.join('|') : '';
+                    const subRegex = sub.length ? sub.join('|') : '';
+
+                    const table = $('#vouchersTable').DataTable();
+
+                    table.column(3).search(headRegex, true, false); // Head Account column
+                    table.column(4).search(subRegex, true, false); // Subhead column
+                    table.draw();
+                    renderDataTable();
+                });
+
+                $('#resetFilters').on('click', function() {
+                    $('.select2').val(null).trigger('change');
+                    $('#filter_voucher_number, #filter_amount, #filter_amount_min, #filter_amount_max, #filter_date_from, #filter_date_to')
+                        .val('');
+
+
+                    const table = $('#vouchersTable').DataTable();
+                    table.search('').columns().search('').draw()
+                    isInitialLoad = true; // Reset to show all data again
+                    renderDataTable();
+                });
+
+                // 🔹 First load → show all data (no filters)
+                renderDataTable();
+            });
+
+            // Function to render the DataTable with or without filters
+            let isInitialLoad = true;
+
+            function renderDataTable() {
+                const $tbl = $('#vouchersTable');
+                const src = $tbl.data('source');
+
+                if ($.fn.DataTable.isDataTable('#vouchersTable')) {
+                    $tbl.DataTable().clear().destroy();
+                }
+
+                $tbl.DataTable({
+                    processing: true,
+                    serverSide: true,
+                    paging: true,
+                    pageLength: 10,
+                    searching: true,
+                    order: [
+                        [1, 'desc']
+                    ],
+                    ajax: {
+                        url: src,
+                        type: 'GET',
+                        data: function(d) {
+                            if (!isInitialLoad) {
+                                d.date_from = $('#filter_date_from').val();
+                                d.date_to = $('#filter_date_to').val();
+                                d.head_account = $('#filter_head_account').val();
+                                d.subhead_account = $('#filter_subhead_account').val();
+                                d.voucher_number = $('#filter_voucher_number').val();
+
+                                const minAmt = $('#filter_amount_min').val();
+                                const maxAmt = $('#filter_amount_max').val();
+
+                                let legacyAmount = '';
+                                if (minAmt && maxAmt && String(minAmt) === String(maxAmt)) {
+                                    legacyAmount = minAmt;
+                                }
+                                $('#filter_amount').val(legacyAmount);
+
+                                d.amount_min = minAmt;
+                                d.amount_max = maxAmt;
+                                d.amount = legacyAmount;
+                            }
+                        },
+                        dataSrc: 'data'
+                    },
+                    columns: [{
+                            data: 'id',
+                            render: (_, __, ___, meta) => meta.row + meta.settings._iDisplayStart + 1
+                        },
+                        {
+                            data: 'date'
+                        },
+                        {
+                            data: 'voucher_number'
+                        },
+                        {
+                            data: 'head'
+                        },
+                        {
+                            data: 'subhead'
+                        },
+                        {
+                            data: 'detail'
+                        },
+                        {
+                            data: 'amount',
+                            render: d => Number(d).toLocaleString()
+                        },
+                        @canany(['update voucher', 'delete voucher', 'read voucher', 'print voucher'])
+                            {
+                                data: null,
+                                orderable: false,
+                                render: function(row) {
+                                    if (row.scope === 'typed_v2_postings_only') {
+                                        return `<a href="${row.print_url}" target="_blank" class="btn btn-sm btn-info">Print</a>`;
+                                    }
+
+                                    // Create dynamic print URL
+                                    let printUrl = "{{ route('finance.voucher.print', ':id') }}";
+                                    printUrl = printUrl.replace(':id', row.id);
+
+                                    let buttons = `<div class="btn-group">`;
+
+                                    @can('update voucher')
+                                        if (row.editable) buttons +=
+                                            `
+                                                                                                                            <button class="btn btn-sm btn-primary btn-edit" data-id="${row.id}" data-voucher-type="${row.type}" data-voucher-number="${row.voucher_number_raw}">
+                                                                                                                                <i class="fas fa-pencil-alt"></i>
+                                                                                                                            </button>
+                                                                                                                        `;
+                                    @endcan
+
+                                    @can('delete voucher')
+                                        buttons +=
+                                            `
+                                                                                                                            <button class="btn btn-sm btn-danger btn-delete" data-id="${row.id}">
+                                                                                                                                <i class="fas fa-trash"></i>
+                                                                                                                            </button>
+                                                                                                                        `;
+                                    @endcan
+
+                                    @can('print voucher')
+                                        buttons +=
+                                            `
+                                                                                                                            <a href="${printUrl}" target="_blank" class="btn btn-sm btn-info btn-print">
+                                                                                                                                <i class="fas fa-print"></i>
+                                                                                                                            </a>
+                                                                                                                        `;
+                                    @endcan
+
+                                    buttons += `</div>`;
+
+                                    return buttons;
+                                }
+                            },
+                        @endcanany
+
+
+                    ]
+                });
+            }
+
+            // ---------- AJAX helper ----------
+            function callAjax(route, csrf, method, data, callback, isFile = false, onError = null) {
+                $.ajaxSetup({
+                    headers: {
+                        "X-CSRF-TOKEN": csrf
+                    }
+                });
+                $.ajax({
+                    url: route,
+                    method: method,
+                    data: data,
+                    success: function(response) {
+                        callback(response);
+                    },
+                    error: function(xhr) {
+                        console.error('❌ AJAX Error:', xhr.responseText);
+                        if (typeof onError === 'function') onError(xhr);
+                    }
+                });
+            }
+        })(jQuery);
+    </script>
+@endsection
+
+@section('modal')
+    {{-- Modal Update --}}
+    <div class="modal fade" id="modal-edit">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-secondary">
+                    <h4 class="modal-title" id="modal-edit-title">Edit Voucher</h4>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-voucher-form" action="{{ route('ledger.update') }}" method="POST"
+                        enctype="multipart/form-data">
+                        @csrf
+                        @method('PUT')
+                        <div class="row">
+
+                            <div class="col-sm-12">
+                                <div class="row">
+                                    <div class="col-sm-4">
+                                        <div class="input-group">
+                                            <label class="fbox">Reference No.</label>
+                                            <div class="input-group">
+                                                <input type="text" value="1" name="action" hidden />
+                                                <input id="edit_voucher_number" type="text" class="form-control"
+                                                    name="edit_voucher_number" autocomplete="off" readonly>
+
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-8">
+                                        <div class="input-group">
+                                            <label class="fbox">Date</label>
+                                            <div class="input-group">
+                                                <input type="text" id="edit_date" name="date"
+                                                    class="date_database form-control" data-input>
+                                                @error('date')
+                                                    <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <div class="row">
+                                    <div class="col-sm-6">
+                                        <div class="input-group">
+                                            <label class="fbox">Account Type</label>
+                                            <div class="input-group">
+                                                <select class="js-tomselect" placeholder=" " name="acct_type"
+                                                    id="edit_acct_type">
+                                                    <option value="">Select Account Type</option>
+                                                    @foreach ($accountTypes as $accountType)
+                                                        <option value="{{ $accountType->id }}">{{ $accountType->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                                @error('projects_id')
+                                                    <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <div class="input-group">
+                                            <label class="fbox">Accounts</label>
+                                            <div class="input-group">
+                                                <select class="js-tomselect" placeholder=" " name="accounts_id"
+                                                    id="edit_accounts_id">
+                                                    <option value=""></option>
+                                                    @foreach ($headaccounts as $v)
+                                                        <option value="{{ $v->head_accounting_id }}">
+                                                            {{ $v->headAccounting->name ?? '' }}
+                                                        </option>
+                                                    @endforeach
+                                                    {{-- @foreach ($headaccounts as $v)
+                                                    <option value="{{ $v->id }}">{{ $v->name }}</option>
+                                                    @endforeach --}}
+                                                </select>
+                                                @error('accounts_id')
+                                                    <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                            <div class="col-sm-12">
+                                <div class="row">
+                                    <div class="col-sm-8">
+                                        <div class="input-group">
+                                            <label class="fbox">Child Account</label>
+                                            <div class="input-group">
+                                                <select class="js-tomselect" placeholder=" " name="subaccounts_id"
+                                                    id="edit_subaccounts_id">
+                                                    <option value=""></option>
+                                                    @foreach ($partyaccounts as $v)
+                                                        @php
+                                                            $balance = $v->balance ?? 0;
+                                                            $balanceClass =
+                                                                $balance < 0 ? 'text-danger' : 'text-success';
+                                                        @endphp
+                                                        <option value="{{ $v->subhead_accounting_id }}">
+                                                            {{ $v->subheadAccounting->name ?? '' }} &
+                                                            Balance = <span
+                                                                class="{{ $balanceClass }}">{{ number_format($balance, 2) }}</span>
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                                @error('subaccounts_id')
+                                                    <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-sm-4">
+                                        <div class="input-group">
+                                            <label class="fbox">Amount</label>
+                                            <div class="input-group">
+                                                <input id="edit_amount" oninput="formatAmount(this)" type="text"
+                                                    class="form-control @error('amount') is-invalid @enderror"
+                                                    placeholder="Amount" name="amount" value="{{ old('amount') }}">
+                                                @error('amount')
+                                                    <div class="invalid-feedback">{{ $message }}</div>
+                                                @enderror
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+                        <div class="customer-detail row">
+
+                            {{-- <div class="mb-3 col-sm-6">
+                                <div class="input-group">
+                                    <label class="fbox">Customer</label>
+                                    <div class="input-group">
+                                        <select class="js-tomselect" placeholder=" " name="customer_id" id="e_customer_id">
+                                            <option value="">Select Customer</option>
+                                            @foreach ($customers as $v)
+                                            <option value="{{ $v->id }}" data-phone="{{ $v->mobile_number }}"
+                                                data-nic_number="{{ $v->nic_number }}"
+                                                data-home_address="{{ $v->home_address }}">
+                                                {{ $v->first_name }} {{ $v->last_name }}
+                                                {{ $v->relate }} {{ $v->father_name }} -
+                                                {{ $v->phone_number }}</option>
+                                            @endforeach
+                                        </select>
+                                        @error('customer_id')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3 col-sm-6">
+                                <div class="input-group">
+                                    <label class="fbox">Plot No.</label>
+                                    <div class="input-group">
+                                        <select class="js-tomselect" placeholder=" " name="plot_id" id="e_plot_id">
+                                            <option value=""></option>
+                                            @foreach ($plots as $v)
+                                            @php
+                                            $plotType = $v->type == 1 ? 'R- ' : 'C- ';
+                                            $plotName = $plotType . $v->name;
+                                            @endphp
+                                            <option value="{{ $v->plot_id }}">
+                                                {{ $plotName ?? '' }}
+                                            </option>
+                                            @endforeach
+                                        </select>
+                                        @error('plot_id')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div> --}}
+                            <div class="mb-3 col-sm-3">
+                                <div class="input-group">
+                                    <label class="fbox">Voucher Type</label>
+                                    <div class="input-group">
+                                        <input id="edit_voucher_type" type="text" class="form-control"
+                                            name="edit_voucher_type" autocomplete="off" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3 col-sm-3">
+                                <div class="input-group">
+                                    <label class="fbox">Payment Type</label>
+                                    <div class="input-group">
+                                        <select class="js-tomselect" placeholder=" " name="payment_type"
+                                            id="edit_payment_type">
+                                            <option value="1">Cash</option>
+                                            <option value="2">Online</option>
+                                            <option value="3">Check</option>
+                                        </select>
+                                        @error('payment_type')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3 col-sm-3">
+                                <div class="input-group edit-bank-field" style="display: none">
+                                    <label class="fbox" id="edit_t_number_label">Number</label>
+                                    <div class="input-group">
+                                        <input id="edit_t_number" type="text"
+                                            class="form-control @error('t_number') is-invalid @enderror"
+                                            placeholder="Number" name="t_number"
+                                            value="{{ old('t_number') }}">
+                                        @error('amount')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3 col-sm-3">
+                                <div class="input-group edit-bank-field" style="display: none">
+                                    <label class="fbox">Bank</label>
+                                    <div class="input-group">
+                                        <select class="js-tomselect" placeholder=" " name="bank_id" id="edit_bank_id">
+                                            <option value="">Bank</option>
+
+                                            @foreach (getPakistanBanks() as $v)
+                                                <option value="{{ $v['id'] }}">{{ $v['name'] }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                </div>
+                            </div>
+                            <div class="mb-3 col-sm-3">
+                                <div class="input-group edit-bank-field" style="display: none">
+                                    <label class="fbox">Passing Date</label>
+                                    <div class="input-group">
+                                        <input type="text" name="passing_date" class="date form-control"
+                                            id="edit_passing_date" data-input>
+                                        @error('passing_date')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3 col-sm-3">
+                                <div class="input-group" id="edit_passing_status_group" style="display: none">
+                                    <label class="fbox">Status</label>
+                                    <div class="input-group">
+                                        <select class="js-tomselect" placeholder=" " name="passing_status"
+                                            id="edit_passing_status">
+                                            <option value="">Select Status</option>
+                                            <option value="0">Pending</option>
+                                            <option value="1">Pass</option>
+                                            <option value="2">Return</option>
+                                            <option value="3">Cheque Bounce</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3 col-sm-12">
+                            <div id="eWordingAmount"></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <div class="input-group">
+                                    <label class="fbox">Detail</label>
+                                    <div class="input-group">
+                                        <textarea id="edit_detail" class="form-control @error('detail') is-invalid @enderror" placeholder="Detail"
+                                            name="detail" style=" height: 150px;" maxlength="255">{{ old('detail') }}</textarea>
+                                        @error('detail')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer justify-content-between">
+                            <input type="hidden" name="id" id="edit_id">
+                            <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                            <button type="submit" class="btn btn-primary" id="edit-update-button">Update</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{-- Modal delete --}}
+    <div class="modal fade" id="modal-delete">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h4 class="modal-title">Delete Voucher</h4>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form action="{{ route('ledger.destroy') }}" method="POST" enctype="multipart/form-data"
+                        id="cashVoucherDeleteForm">
+                        @csrf
+                        @method('DELETE')
+                        <p class="modal-text" data-default-text="Are you sure you want to delete?">Are you sure you want to delete? <b id="delete-data"></b></p>
+                        <textarea name="delete_reason" id="" cols="60"></textarea>
+                        <input type="hidden" name="id" id="did">
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">No</button>
+                    <button type="submit" class="btn btn-danger">Yes</button>
+                </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="confirmedModal" tabindex="-1" role="dialog" aria-labelledby="confirmModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="confirmModalLabel">Confirm Save</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <center>
+                        {{-- <img
+                            src="https://mir-s3-cdn-cf.behance.net/project_modules/disp/cd514331234507.564a1d2324e4e.gif"
+                            alt="555" class="img" width="200"> --}}
+                        <br>
+                        Are You Sure You Want To Save?
+                    </center>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="submitForm">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+@endsection
