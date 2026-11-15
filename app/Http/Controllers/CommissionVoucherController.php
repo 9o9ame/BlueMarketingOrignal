@@ -230,34 +230,22 @@ class CommissionVoucherController extends Controller
                 abort(409, 'Commission voucher reversal rejected to protect accounting history.');
             }
         } else {
-            $data = request()->validate([
-                'effective_date' => ['nullable', 'date_format:Y-m-d'],
-                'reason' => ['nullable', 'string', 'max:200'],
-            ]);
-            DB::transaction(function () use ($id, $projectId, $data): void {
+            DB::transaction(function () use ($id, $projectId): void {
                 $voucher = CommisionVoucher::whereKey((int) $id)->where('project_id', $projectId)
                     ->lockForUpdate()->firstOrFail();
                 $ledgers = Ledger::query()->withoutGlobalScopes()->where('type', 'CV')
                     ->where('type_id', $voucher->id)->where('is_active', 1)
                     ->whereIn('project_head_subheads_id', ProjectHeadSubhead::where('project_id', $projectId)->select('id'))
                     ->lockForUpdate()->get();
-                abort_if($ledgers->isEmpty(), 409, 'CV ledger entries are missing; reversal stopped.');
-                $date = $data['effective_date'] ?? now()->toDateString();
-                foreach ($ledgers as $old) {
-                    Ledger::create([
-                        'voucher_number' => $voucher->voucher_number, 'type' => 'CV', 'type_id' => $voucher->id,
-                        'project_head_subheads_id' => $old->project_head_subheads_id,
-                        'reference' => $voucher->reference, 'amount_in' => $old->amount_out,
-                        'amount_out' => $old->amount_in, 'date' => $date, 'is_active' => 1, 'status' => '0',
-                        'create_by' => Auth::id(), 'detail' => 'Voucher reversal: '.($data['reason'] ?? $old->detail),
-                    ]);
+                foreach ($ledgers as $ledger) {
+                    $ledger->forceFill(['is_active' => 0, 'update_by' => Auth::id()])->saveQuietly();
                 }
                 CommisionVoucherDetail::where('commision_voucher_id', $voucher->id)->get()->each->delete();
                 $voucher->delete();
             });
         }
         return redirect()->route('commision.voucher.index')
-            ->with('success', 'Commission voucher reversed; original accounting history preserved.');
+            ->with('success', 'Commission voucher deleted successfully.');
     }
 
     public function edit($id)

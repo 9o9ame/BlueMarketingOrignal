@@ -69,6 +69,7 @@ final class V2JournalDraftWorkflow
                 $debit += $amounts['debit'];
                 $credit += $amounts['credit'];
                 $prepared[] = [
+                    'id' => $line['detail_id'] ?? null,
                     'journal_voucher_id' => $sourceId,
                     'account_id' => $line['account_id'],
                     'debit' => $this->money($amounts['debit']),
@@ -79,10 +80,27 @@ final class V2JournalDraftWorkflow
             if ($debit < 1 || $debit !== $credit) {
                 throw new \DomainException('V2_JV_DRAFT_NOT_BALANCED');
             }
-            DB::table('journal_voucher_details')
+            $existingIds = DB::table('journal_voucher_details')
                 ->where('journal_voucher_id', $sourceId)->whereNull('deleted_at')
+                ->lockForUpdate()->pluck('id')->all();
+            $submittedIds = array_filter(array_column($prepared, 'id'));
+            if (count($submittedIds) !== count(array_unique($submittedIds))
+                || array_diff($submittedIds, $existingIds)) {
+                throw new \DomainException('V2_JV_DRAFT_DETAIL_MISMATCH');
+            }
+            DB::table('journal_voucher_details')
+                ->whereIn('id', array_diff($existingIds, $submittedIds))
+                ->where('journal_voucher_id', $sourceId)
                 ->update(['deleted_at' => now()]);
-            DB::table('journal_voucher_details')->insert($prepared);
+            foreach ($prepared as $row) {
+                $detailId = $row['id'];
+                unset($row['id']);
+                if ($detailId) {
+                    DB::table('journal_voucher_details')->where('id', $detailId)->update($row);
+                } else {
+                    DB::table('journal_voucher_details')->insert($row);
+                }
+            }
             DB::table('journal_vouchers')->where('id', $sourceId)->update([
                 'date' => $date, 'total_debit' => $this->money($debit),
                 'total_credit' => $this->money($credit),

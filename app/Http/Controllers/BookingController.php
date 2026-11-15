@@ -2180,9 +2180,9 @@ class BookingController extends Controller
                 ->where('type', $source->transaction_type)->where('is_active', 1)->firstOrFail();
             $cash = (string) $validated['payment_type'] === '1';
             $result = app(\App\Services\Finance\LegacyCashVoucherCorrection::class)->correct(
-                $projectId, (int) $source->id, (int) $oldLedger->project_head_subheads_id,
+                $projectId, (int) $oldLedger->id, (int) $source->id, (int) $oldLedger->project_head_subheads_id,
                 [
-                    'reference' => $validated['reference'].'-CORR-'.now()->format('YmdHisu'),
+                    'reference' => $validated['reference'],
                     'date' => $validated['date'], 'description' => $validated['description'] ?? '',
                     'amount_in' => str_replace(',', '', $validated['amount_out']), 'amount_out' => 0,
                     'payment_type' => $validated['payment_type'], 't_number' => $cash ? null : $validated['t_number'],
@@ -2203,7 +2203,7 @@ class BookingController extends Controller
         } catch (\DomainException $e) {
             return back()->withErrors(['msg' => 'Receipt correction rejected to protect accounting history.'])->withInput();
         }
-        return back()->with('success', 'Receipt corrected; original posting and reversal preserved.');
+        return back()->with('success', 'Receipt updated successfully.');
 
         /* Legacy in-place mutation is intentionally unreachable. */
         $validator = Validator::make($request->all(), [

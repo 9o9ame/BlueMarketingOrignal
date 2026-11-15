@@ -11,7 +11,7 @@
 
         @can('delete jv')
             <button class="btn btn-sm btn-danger delete-btn" data-id="{{ $voucher->id }}">
-                <i class="fas fa-undo"></i> Reverse
+                <i class="fas fa-trash"></i> {{ \App\Services\Finance\V2OriginalWorkflowAccess::selected() ? 'Reverse' : 'Delete' }}
             </button>
         @endcan
 

@@ -785,7 +785,7 @@ class LedgerController extends Controller
     {
         $data = $request->validate([
             'id' => ['required', 'integer', 'min:1'],
-            'voucher_type' => ['nullable', 'in:CR,CP'],
+            'voucher_type' => ['nullable', 'in:CR,CP,PPR'],
             'voucher_number' => ['nullable', 'integer', 'min:1'],
         ]);
         $base = Ledger::with([
@@ -794,8 +794,7 @@ class LedgerController extends Controller
             'projectHeadSubhead.subheadAccounting',
             'projectHeadSubhead.project',
         ])
-            ->whereIn('type', ['CR', 'CP'])
-            ->whereNotNull('customer_ledger_id')
+            ->whereIn('type', ['CR', 'CP', 'PPR'])
             ->whereHas('projectHeadSubhead', function ($q) {
                 $q->where('project_id', getSelectedTown());
             });
@@ -913,8 +912,6 @@ class LedgerController extends Controller
 
     public function destroy(Request $request)
     {
-        // Posted financial ledger entries must remain immutable. Reversals must
-        // be handled by a separate authorized, auditable workflow.
         $selectedProjectId = getSelectedTown();
         $ledger = Ledger::query()
             ->whereKey($request->input('id'))
@@ -936,30 +933,48 @@ class LedgerController extends Controller
             return back();
         }
 
+        $deleteReason = trim((string) $request->input('reason')) ?: 'Voucher deleted';
+        DB::transaction(function () use ($ledger, $deleteReason): void {
+            $locked = Ledger::query()->whereKey($ledger->id)->lockForUpdate()->firstOrFail();
+            $locked->forceFill(['is_active' => 0, 'update_by' => Auth::id()])->saveQuietly();
+
+            if ($locked->customer_ledger_id) {
+                $source = \App\Models\CustomerLedger::query()->whereKey($locked->customer_ledger_id)
+                    ->lockForUpdate()->first();
+                if ($source && (int) $source->is_active === 1) {
+                    $source->forceFill(['is_active' => 0, 'delete_reason' => $deleteReason])
+                        ->saveQuietly();
+                }
+            }
+
+            if (class_exists(\App\Models\BookingVoucher::class)) {
+                $bookingVoucher = \App\Models\BookingVoucher::query()->where('ledger_id', $locked->id)->lockForUpdate()->first();
+                if ($bookingVoucher && (int) $bookingVoucher->is_active === 1) {
+                    $bookingVoucher->forceFill(['is_active' => 0, 'update_by' => Auth::id()])->save();
+                }
+            }
+        });
+
+        $response = ['status' => 'success', 'message' => 'Voucher deleted successfully.'];
         if ($expectsJson) {
-            return response()->json([
-                'status' => 'error',
-                'error_key' => 'voucher_posted_to_ledger',
-                'message' => 'Cannot delete this voucher because it has already been posted to the ledger.',
-            ], 422);
+            return response()->json($response);
         }
-
-        Alert::warning('Cannot Delete', 'Cannot delete this voucher because it has already been posted to the ledger.')
-            ->toToast()->toHtml();
-
+        Alert::success('Notification', $response['message'])->toToast()->toHtml();
         return back();
     }
 
     public function draftDestroy(Request $request)
     {
         $data = [
-            'is_active' => "0",
+            'is_active' => 0,
+            'deleted_at' => now(),
         ];
         DB::beginTransaction();
         try {
             $result = DraftLedger::find($request->id);
             if (Auth::user()->hasRole('super-admin') || Auth::user()->can('direct-update')) {
                 $result->update(['is_active' => 0]);
+                $result->delete();
                 DB::commit();
 
                 Alert::success('Notification', 'Voucher <b>' . $result->detail . '</b> deleted successfully.')
@@ -999,7 +1014,7 @@ class LedgerController extends Controller
         $projectId = (int) getSelectedTown();
         abort_if($projectId < 1, 403, 'Select a project.');
         $ledger = Ledger::query()->whereKey((int) $data['id'])
-            ->whereIn('type', ['CR', 'CP'])->whereNotNull('customer_ledger_id')
+            ->whereIn('type', ['CR', 'CP', 'PPR'])
             ->whereHas('projectHeadSubhead', fn ($q) => $q->where('project_id', $projectId))->firstOrFail();
         $account = ProjectHeadSubhead::query()->where('project_id', $projectId)
             ->where('head_accounting_id', (int) $data['accounts_id'])
@@ -1007,22 +1022,80 @@ class LedgerController extends Controller
         $amount = str_replace(',', '', $data['amount']);
         $cash = (int) $data['payment_type'] === 1;
         try {
-            app(\App\Services\Finance\LegacyCashVoucherCorrection::class)->correct(
-                $projectId, (int) $ledger->customer_ledger_id, (int) $account->id,
-                [
-                    'reference' => (string) $ledger->reference.'-CORR-'.now()->format('YmdHisu'),
-                    'date' => $data['date'], 'description' => $data['detail'],
-                    'amount_in' => $ledger->type === 'CR' ? $amount : 0,
-                    'amount_out' => $ledger->type === 'CP' ? $amount : 0,
-                    'payment_type' => $data['payment_type'], 't_number' => $cash ? null : $data['t_number'],
-                    'bank_id' => $cash ? null : $data['bank_id'], 'passing_date' => $cash ? null : $data['passing_date'],
-                    'passing_status' => $data['passing_status'] ?? 0,
-                ], (int) Auth::id()
-            );
+            $linkedSource = $ledger->customer_ledger_id
+                ? CustomerLedger::query()->whereKey($ledger->customer_ledger_id)->where('project_id', $projectId)->first()
+                : null;
+
+            // A CP clearance row can point to the original CR/PPR receipt.
+            // Editing that CP must only update the selected CP ledger row;
+            // treating its customer_ledger_id as a CP source would rewrite the
+            // original receipt and move its amount from amount_in to amount_out.
+            $isReceiptClearance = $ledger->type === 'CP' && $linkedSource &&
+                in_array((string) $linkedSource->transaction_type, ['CR', 'PPR'], true);
+
+            if ($isReceiptClearance) {
+                abort_if((int) $linkedSource->is_active !== 1, 409, 'The linked receipt is inactive; this clearance cannot be edited.');
+                abort_if(round((float) $ledger->amount_out, 2) !== round((float) $amount, 2), 422,
+                    'The amount of a receipt clearance must stay equal to its original receipt.');
+
+                DB::transaction(function () use ($ledger, $linkedSource, $account, $data, $projectId): void {
+                    CustomerLedger::query()->whereKey($linkedSource->id)->where('project_id', $projectId)
+                        ->lockForUpdate()->firstOrFail();
+                    $locked = Ledger::query()->whereKey($ledger->id)->where('type', 'CP')
+                        ->where('customer_ledger_id', $linkedSource->id)->where('is_active', 1)
+                        ->lockForUpdate()->firstOrFail();
+                    $locked->forceFill([
+                        'project_head_subheads_id' => $account->id,
+                        'date' => $data['date'],
+                        'detail' => $data['detail'],
+                        'update_by' => Auth::id(),
+                    ])->saveQuietly();
+                });
+            } elseif ($linkedSource && (string) $linkedSource->transaction_type === (string) $ledger->type) {
+                app(\App\Services\Finance\LegacyCashVoucherCorrection::class)->correct(
+                    $projectId, (int) $ledger->id, (int) $ledger->customer_ledger_id, (int) $account->id,
+                    [
+                        'date' => $data['date'], 'description' => $data['detail'],
+                        'amount_in' => in_array($ledger->type, ['CR', 'PPR'], true) ? $amount : 0,
+                        'amount_out' => $ledger->type === 'CP' ? $amount : 0,
+                        'payment_type' => $data['payment_type'], 't_number' => $cash ? null : $data['t_number'],
+                        'bank_id' => $cash ? null : $data['bank_id'], 'passing_date' => $cash ? null : $data['passing_date'],
+                        'passing_status' => $data['passing_status'] ?? 0,
+                    ], (int) Auth::id()
+                );
+            } elseif (!$linkedSource) {
+                DB::transaction(function () use ($ledger, $account, $amount, $data): void {
+                    $locked = Ledger::query()->whereKey($ledger->id)->where('is_active', 1)->lockForUpdate()->firstOrFail();
+                    $locked->forceFill([
+                        'project_head_subheads_id' => $account->id,
+                        'date' => $data['date'],
+                        'amount_in' => in_array($locked->type, ['CR', 'PPR'], true) ? $amount : 0,
+                        'amount_out' => $locked->type === 'CP' ? $amount : 0,
+                        'detail' => $data['detail'],
+                        'update_by' => Auth::id(),
+                    ])->saveQuietly();
+                    if ($locked->type === 'PPR') {
+                        $bookingVoucher = \App\Models\BookingVoucher::query()->where('ledger_id', $locked->id)
+                            ->lockForUpdate()->first();
+                        if ($bookingVoucher) {
+                            $bookingVoucher->forceFill([
+                                'amount' => $amount, 'receipt_date' => $data['date'],
+                                'description' => $data['detail'], 'payment_type' => $data['payment_type'],
+                                't_number' => $data['payment_type'] == 1 ? null : $data['t_number'],
+                                'bank_id' => $data['payment_type'] == 1 ? null : $data['bank_id'],
+                                'passing_date' => $data['payment_type'] == 1 ? null : $data['passing_date'],
+                                'update_by' => Auth::id(),
+                            ])->save();
+                        }
+                    }
+                });
+            } else {
+                abort(409, 'Voucher source does not match this ledger row; no records were changed.');
+            }
         } catch (\DomainException $e) {
             abort(409, 'Cash voucher correction rejected to protect accounting history.');
         }
-        $response = ['status' => 'success', 'message' => 'Voucher corrected; original posting and reversal preserved.'];
+        $response = ['status' => 'success', 'message' => 'Voucher updated successfully.'];
         return ($request->expectsJson() || $request->ajax()) ? response()->json($response) : back()->with('success', $response['message']);
 
         /* Legacy mutation retained temporarily below for forensic reference; it

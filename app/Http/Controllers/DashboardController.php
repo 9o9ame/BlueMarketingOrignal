@@ -25,9 +25,14 @@ class DashboardController extends Controller
     public function index(Request $request)
     {
         $create_by = null;
-        $selectedProjectId = getSelectedTown();
         $post_by = Auth::user()->id;
         $power = Auth::user()->roles[0]->name;
+        $selectedProjectId = (int) getSelectedTown();
+        if ($selectedProjectId < 1) {
+            $selectedProjectId = $power === 'superadmin'
+                ? (int) (\App\Models\Project::query()->where('is_active', 1)->orderBy('id')->value('id') ?? 0)
+                : (int) (Auth::user()->project_id ?? 0);
+        }
 
         $x['title'] = 'Dashboard';
         $x['user'] = User::get();

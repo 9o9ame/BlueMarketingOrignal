@@ -86,6 +86,7 @@
                                         @foreach($voucher->details as $index => $detail)
                                             <tr>
                                                 <td>
+                                                    <input type="hidden" name="detail_ids[]" value="{{ $detail->id }}">
                                                     <select name="accounts[]" class="form-control select2 account-select"
                                                         required>
                                                         <option value="">Select Account</option>
@@ -215,6 +216,7 @@
                 const newRow = `
                             <tr>
                                 <td>
+                                    <input type="hidden" name="detail_ids[]" value="">
                                     <select name="accounts[]" class="form-control select2 account-select" required>
                                         <option value="">Select Account</option>
                                         @foreach($accounts as $account)

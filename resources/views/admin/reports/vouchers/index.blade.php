@@ -98,19 +98,25 @@
                     </button>
                 </div>
                 <div class="modal-body">
-                    Reverse this posted Journal Voucher? Its original entries will remain in history.
+                    @if(\App\Services\Finance\V2OriginalWorkflowAccess::selected())
+                        Reverse this posted Journal Voucher? Its original entries will remain in history.
+                    @else
+                        Delete this Journal Voucher? It will be archived and removed from active ledger reports.
+                    @endif
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                     <form id="deleteForm" method="POST">
                         @csrf
                         @method('DELETE')
-                        <input type="hidden" name="request_key" value="{{ old('request_key', (string) \Illuminate\Support\Str::uuid()) }}">
-                        <label for="reversalDate">Reversal date</label>
-                        <input id="reversalDate" type="date" name="effective_date" class="form-control mb-2" value="{{ old('effective_date', now()->toDateString()) }}" required>
-                        <label for="reversalReason">Reason</label>
-                        <input id="reversalReason" type="text" name="reason" class="form-control mb-2" maxlength="200" value="{{ old('reason') }}" required>
-                        <button type="submit" class="btn btn-danger">Reverse voucher</button>
+                        @if(\App\Services\Finance\V2OriginalWorkflowAccess::selected())
+                            <input type="hidden" name="request_key" value="{{ old('request_key', (string) \Illuminate\Support\Str::uuid()) }}">
+                            <label for="reversalDate">Reversal date</label>
+                            <input id="reversalDate" type="date" name="effective_date" class="form-control mb-2" value="{{ old('effective_date', now()->toDateString()) }}" required>
+                            <label for="reversalReason">Reason</label>
+                            <input id="reversalReason" type="text" name="reason" class="form-control mb-2" maxlength="200" value="{{ old('reason') }}" required>
+                        @endif
+                        <button type="submit" class="btn btn-danger">{{ \App\Services\Finance\V2OriginalWorkflowAccess::selected() ? 'Reverse voucher' : 'Delete voucher' }}</button>
                     </form>
                 </div>
             </div>

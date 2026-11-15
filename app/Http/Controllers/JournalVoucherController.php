@@ -602,35 +602,30 @@ class JournalVoucherController extends Controller
                 abort(409, 'Journal reversal rejected to protect accounting history.');
             }
         } else {
-            $data = request()->validate([
-                'effective_date' => ['nullable', 'date_format:Y-m-d'],
-                'reason' => ['nullable', 'string', 'max:200'],
-            ]);
-            DB::transaction(function () use ($id, $projectId, $data): void {
+            DB::transaction(function () use ($id, $projectId): void {
                 $voucher = JournalVoucher::whereKey((int) $id)->where('project_id', $projectId)
                     ->where(fn ($q) => $q->where('type', 'JV')->orWhereNull('type'))
                     ->lockForUpdate()->firstOrFail();
-                $ledgers = Ledger::query()->withoutGlobalScopes()->where('type', 'JV')
-                    ->where('type_id', $voucher->id)->where('is_active', 1)
-                    ->whereIn('project_head_subheads_id', ProjectHeadSubhead::where('project_id', $projectId)->select('id'))
+                $detailIds = JournalVoucherDetail::withTrashed()
+                    ->where('journal_voucher_id', $voucher->id)->pluck('id');
+                $ledgers = Ledger::query()->withoutGlobalScopes()
+                    ->where(function ($query) use ($voucher, $detailIds) {
+                        $query->whereIn('journal_voucher_detail_id', $detailIds)
+                            ->orWhere(function ($legacy) use ($voucher) {
+                                $legacy->whereNull('journal_voucher_detail_id')
+                                    ->where('type', 'JV')->where('type_id', $voucher->id);
+                            });
+                    })->where('is_active', 1)
                     ->lockForUpdate()->get();
-                abort_if($ledgers->isEmpty(), 409, 'JV ledger entries are missing; reversal stopped.');
-                $date = $data['effective_date'] ?? now()->toDateString();
-                foreach ($ledgers as $old) {
-                    Ledger::create([
-                        'voucher_number' => $voucher->voucher_number, 'type' => 'JV', 'type_id' => $voucher->id,
-                        'project_head_subheads_id' => $old->project_head_subheads_id,
-                        'reference' => $voucher->reference, 'amount_in' => $old->amount_out,
-                        'amount_out' => $old->amount_in, 'date' => $date, 'is_active' => 1, 'status' => '0',
-                        'create_by' => Auth::id(), 'detail' => 'Voucher reversal: '.($data['reason'] ?? $old->detail),
-                    ]);
+                foreach ($ledgers as $ledger) {
+                    $ledger->forceFill(['is_active' => 0, 'update_by' => Auth::id()])->saveQuietly();
                 }
                 JournalVoucherDetail::where('journal_voucher_id', $voucher->id)->get()->each->delete();
                 $voucher->delete();
             });
         }
         return redirect()->route('journal.voucher.index')
-            ->with('success', 'Journal voucher reversed; original accounting history preserved.');
+            ->with('success', 'Journal voucher deleted successfully.');
     }
 
     public function edit($id)
@@ -655,7 +650,17 @@ class JournalVoucherController extends Controller
 
     public function update(Request $request, $id)
     {
+        foreach (['debit', 'credit'] as $field) {
+            if (is_array($request->input($field))) {
+                $request->merge([$field => array_map(
+                    fn ($amount) => $amount === null || $amount === '' ? '0' : $amount,
+                    $request->input($field)
+                )]);
+            }
+        }
         $data = $request->validate([
+            'detail_ids' => ['required', 'array'],
+            'detail_ids.*' => ['nullable', 'integer', 'min:1', 'distinct'],
             'date' => ['required', 'date_format:Y-m-d'],
             'reference' => ['nullable', 'string', 'max:255'],
             'description' => ['required', 'string', 'max:2000'],
@@ -671,7 +676,7 @@ class JournalVoucherController extends Controller
             'line_description.*' => ['nullable', 'string', 'max:1000'],
         ]);
         $keys = array_keys($data['accounts']);
-        foreach (['sub_accounts', 'debit', 'credit'] as $field) {
+        foreach (['detail_ids', 'sub_accounts', 'debit', 'credit'] as $field) {
             if (array_keys($data[$field]) !== $keys) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     $field => 'Journal line arrays must share identical keys.',
@@ -701,6 +706,7 @@ class JournalVoucherController extends Controller
             }
             $totalDebitCents += $debitCents; $totalCreditCents += $creditCents;
             $lines[] = [
+                'detail_id' => $data['detail_ids'][$index] ?? null,
                 'account_id' => $sub,
                 'debit' => $this->centsToMoney($debitCents),
                 'credit' => $this->centsToMoney($creditCents),
@@ -728,40 +734,45 @@ class JournalVoucherController extends Controller
                     ->lockForUpdate()->firstOrFail();
                 $oldDetails = JournalVoucherDetail::where('journal_voucher_id', $voucher->id)
                     ->lockForUpdate()->get();
-                $oldLedgers = Ledger::query()->withoutGlobalScopes()->where('type', 'JV')
-                    ->where('type_id', $voucher->id)->where('is_active', 1)
-                    ->whereIn('project_head_subheads_id', ProjectHeadSubhead::where('project_id', $projectId)->select('id'))
-                    ->lockForUpdate()->get();
-                abort_if($oldLedgers->isEmpty(), 409, 'JV ledger entries are missing; update stopped without changes.');
+                $submittedIds = array_filter(array_column($lines, 'detail_id'));
+                if (array_diff($submittedIds, $oldDetails->modelKeys())) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'detail_ids' => 'Existing voucher rows must belong to this voucher.',
+                    ]);
+                }
+                $oldDetails = $oldDetails->keyBy('id');
+                $oldLedgers = Ledger::query()->withoutGlobalScopes()
+                    ->whereIn('journal_voucher_detail_id', $oldDetails->modelKeys())
+                    ->lockForUpdate()->get()->groupBy('journal_voucher_detail_id');
+                foreach ($oldDetails as $detail) {
+                    $linked = $oldLedgers->get($detail->id, collect());
+                    abort_if($linked->count() !== 1 || $linked->first()->type !== 'JV'
+                        || (int) $linked->first()->type_id !== (int) $voucher->id
+                        || !(bool) $linked->first()->is_active,
+                        409, 'Voucher ledger linkage is missing or inconsistent; no changes saved.');
+                }
                 $typed = app(\App\Services\Finance\FinancePostingSchemaGate::class)->mode() === 'typed';
 
-                // Append exact opposite legs first. The original posted history is
-                // retained; reports see original + reversal + corrected posting.
-                foreach ($oldLedgers as $old) {
-                    $reversal = Ledger::create([
-                        'voucher_number' => $voucher->voucher_number, 'type' => 'JV', 'type_id' => $voucher->id,
-                        'project_head_subheads_id' => $old->project_head_subheads_id,
-                        'reference' => $voucher->reference, 'amount_in' => $old->amount_out,
-                        'amount_out' => $old->amount_in,
-                        'detail' => 'Correction reversal: '.($old->detail ?: $voucher->description),
-                        'create_by' => Auth::id(), 'is_active' => 1, 'status' => '0', 'date' => $data['date'],
-                    ]);
-                    if ($typed) app(\App\Services\Finance\LedgerSourceAttributionWriter::class)
-                        ->recordNewPosting((int) $reversal->id, $projectId, 'journal_voucher', (int) $voucher->id);
+                foreach ($oldDetails as $detail) {
+                    if (!in_array($detail->id, $submittedIds)) {
+                        $ledger = $oldLedgers->get($detail->id)->first();
+                        $ledger->forceFill(['is_active' => 0, 'update_by' => Auth::id()])->saveQuietly();
+                        $detail->delete();
+                    }
                 }
-
-                foreach ($oldDetails as $detail) $detail->delete();
                 $voucher->update([
                     'reference' => $data['reference'] ?? null, 'description' => $data['description'],
                     'date' => $data['date'], 'total_debit' => $this->centsToMoney($totalDebitCents),
                     'total_credit' => $this->centsToMoney($totalCreditCents), 'updated_by' => Auth::id(),
                 ]);
                 foreach ($lines as $line) {
-                    $detail = JournalVoucherDetail::create([
+                    $detail = !empty($line['detail_id'])
+                        ? $oldDetails->get($line['detail_id']) : new JournalVoucherDetail();
+                    $detail->fill([
                         'journal_voucher_id' => $voucher->id, 'account_id' => $line['account_id'],
                         'debit' => $line['debit'], 'credit' => $line['credit'],
-                        'description' => $line['description'], 'created_by' => Auth::id(),
-                    ]);
+                        'description' => $line['description'],
+                    ])->save();
                     $attributes = [
                         'voucher_number' => $voucher->voucher_number, 'type' => 'JV', 'type_id' => $voucher->id,
                         'project_head_subheads_id' => $line['account_id'], 'reference' => $data['reference'] ?? null,
@@ -772,14 +783,21 @@ class JournalVoucherController extends Controller
                     if (\Illuminate\Support\Facades\Schema::hasColumn('ledgers', 'journal_voucher_detail_id')) {
                         $attributes['journal_voucher_detail_id'] = $detail->id;
                     }
-                    $ledger = Ledger::create($attributes);
-                    if ($typed) app(\App\Services\Finance\LedgerSourceAttributionWriter::class)
-                        ->recordNewPosting((int) $ledger->id, $projectId, 'journal_voucher', (int) $voucher->id);
+                    if (!empty($line['detail_id'])) {
+                        $ledger = $oldLedgers->get($detail->id)->first();
+                        unset($attributes['create_by'], $attributes['status']);
+                        // This workflow explicitly permits editing the linked JV posting.
+                        $ledger->forceFill($attributes + ['update_by' => Auth::id()])->saveQuietly();
+                    } else {
+                        $ledger = Ledger::create($attributes);
+                        if ($typed) app(\App\Services\Finance\LedgerSourceAttributionWriter::class)
+                            ->recordNewPosting((int) $ledger->id, $projectId, 'journal_voucher', (int) $voucher->id);
+                    }
                 }
             });
         }
         return redirect()->route('journal.voucher.edit', ['id' => $id])
-            ->with('success', 'Journal voucher corrected successfully; previous posting history was preserved.');
+            ->with('success', 'Journal voucher updated successfully.');
     }
 
     private function moneyToCents(string $value): int

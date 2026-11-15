@@ -7,68 +7,71 @@ use App\Models\Ledger;
 use App\Models\ProjectHeadSubhead;
 use Illuminate\Support\Facades\DB;
 
-/** Append-only correction for posted CR/CP/PPR sources and ledger legs. */
+/** Updates a cash voucher's original source and ledger leg in place. */
 final class LegacyCashVoucherCorrection
 {
-    /** @return array{source:CustomerLedger,ledger:Ledger,reversal_source:CustomerLedger,reversal_ledger:Ledger} */
-    public function correct(int $projectId, int $sourceId, int $accountId, array $changes, int $userId): array
+    /** @return array{source:CustomerLedger,ledger:Ledger} */
+    public function correct(int $projectId, int $ledgerId, int $sourceId, int $accountId, array $changes, int $userId): array
     {
-        return DB::transaction(function () use ($projectId, $sourceId, $accountId, $changes, $userId): array {
+        return DB::transaction(function () use ($projectId, $ledgerId, $sourceId, $accountId, $changes, $userId): array {
             $source = CustomerLedger::query()->whereKey($sourceId)->where('project_id', $projectId)
                 ->whereIn('transaction_type', ['CR', 'CP', 'PPR'])->where('is_active', 1)
                 ->lockForUpdate()->firstOrFail();
-            $old = Ledger::query()->withoutGlobalScopes()->where('customer_ledger_id', $source->id)
-                ->where('type', $source->transaction_type)->where('is_active', 1)
+            $ledger = Ledger::query()->withoutGlobalScopes()->where('customer_ledger_id', $source->id)
+                ->whereKey($ledgerId)->where('type', $source->transaction_type)->where('is_active', 1)
                 ->whereIn('project_head_subheads_id', ProjectHeadSubhead::where('project_id', $projectId)->select('id'))
-                ->lockForUpdate()->get();
-            if ($old->count() !== 1) {
+                ->lockForUpdate()->firstOrFail();
+            if (Ledger::query()->withoutGlobalScopes()->where('customer_ledger_id', $source->id)
+                ->where('type', $source->transaction_type)->where('is_active', 1)->count() !== 1 ||
+                (int) $ledger->customer_ledger_id !== (int) $source->id) {
                 throw new \DomainException('CASH_VOUCHER_SINGLE_SOURCE_LEG_REQUIRED');
             }
-            $oldLedger = $old->first();
+
             $account = ProjectHeadSubhead::query()->whereKey($accountId)->where('project_id', $projectId)
                 ->lockForUpdate()->firstOrFail();
             $type = (string) $source->transaction_type;
-            $next = (int) CustomerLedger::query()->where('project_id', $projectId)
-                ->where('transaction_type', $type)->lockForUpdate()->max('type_id') + 1;
-            $date = (string) $changes['date'];
-            $reversalReference = 'REV-'.$type.'-'.$source->id.'-'.$next;
+            if (isset($changes['reference']) && (string) $changes['reference'] !== (string) $source->reference &&
+                CustomerLedger::query()->where('project_id', $projectId)->where('transaction_type', $type)
+                    ->where('reference', $changes['reference'])->where('id', '<>', $source->id)->exists()) {
+                throw new \DomainException('CASH_VOUCHER_REFERENCE_ALREADY_USED');
+            }
+            $source->forceFill(array_merge($changes, [
+                'project_id' => $projectId,
+                'customer_id' => $account->customer_id ?? $source->customer_id,
+                'plot_id' => $account->plot_id ?? $source->plot_id,
+                'transaction_type' => $type,
+            ]))->saveQuietly();
 
-            $base = $source->getAttributes();
-            unset($base['id'], $base['created_at'], $base['updated_at']);
-            $reversalSource = CustomerLedger::create(array_merge($base, [
-                'type_id' => $next, 'reference' => $reversalReference, 'date' => $date,
-                'amount_in' => $source->amount_out, 'amount_out' => $source->amount_in,
-                'description' => 'Correction reversal: '.($source->description ?: $source->reference),
-                'is_active' => 1,
-            ]));
-            $correctedSource = CustomerLedger::create(array_merge($base, $changes, [
-                'type_id' => $next + 1, 'project_id' => $projectId,
-                'customer_id' => $changes['customer_id'] ?? $account->customer_id ?? $source->customer_id,
-                'plot_id' => $changes['plot_id'] ?? $account->plot_id ?? $source->plot_id,
-                'transaction_type' => $type, 'is_active' => 1,
-            ]));
+            $ledger->forceFill([
+                'project_head_subheads_id' => $account->id,
+                'date' => $changes['date'],
+                'amount_in' => in_array($type, ['CR', 'PPR'], true) ? $changes['amount_in'] : 0,
+                'amount_out' => $type === 'CP' ? $changes['amount_out'] : 0,
+                'reference' => $changes['reference'] ?? $source->reference,
+                'detail' => $changes['description'],
+                'update_by' => $userId,
+            ])->saveQuietly();
 
-            $common = [
-                'type' => $type, 'project_head_subheads_id' => $oldLedger->project_head_subheads_id,
-                'create_by' => $userId, 'is_active' => 1, 'status' => '0', 'date' => $date,
-            ];
-            $reversalLedger = Ledger::create(array_merge($common, [
-                'type_id' => $reversalSource->type_id, 'voucher_number' => $reversalSource->type_id,
-                'customer_ledger_id' => $reversalSource->id, 'reference' => $reversalReference,
-                'amount_in' => $oldLedger->amount_out, 'amount_out' => $oldLedger->amount_in,
-                'detail' => $reversalSource->description,
-            ]));
-            $correctedLedger = Ledger::create([
-                'type' => $type, 'type_id' => $correctedSource->type_id,
-                'voucher_number' => $correctedSource->type_id, 'project_head_subheads_id' => $account->id,
-                'customer_ledger_id' => $correctedSource->id, 'reference' => $correctedSource->reference,
-                'amount_in' => $correctedSource->amount_in, 'amount_out' => $correctedSource->amount_out,
-                'detail' => $correctedSource->description, 'create_by' => $userId,
-                'is_active' => 1, 'status' => '0', 'date' => $date,
-            ]);
+            if ($type === 'PPR') {
+                $bookingVoucher = \App\Models\BookingVoucher::query()->where('customer_ledger_id', $source->id)
+                    ->orWhere('ledger_id', $ledger->id)->lockForUpdate()->first();
+                if ($bookingVoucher) {
+                    $bookingVoucher->forceFill([
+                        'customer_id' => $source->customer_id,
+                        'plot_id' => $source->plot_id,
+                        'amount' => $changes['amount_in'],
+                        'receipt_date' => $changes['date'],
+                        'description' => $changes['description'],
+                        'payment_type' => $changes['payment_type'],
+                        't_number' => $changes['t_number'],
+                        'bank_id' => $changes['bank_id'],
+                        'passing_date' => $changes['passing_date'],
+                        'update_by' => $userId,
+                    ])->save();
+                }
+            }
 
-            return ['source' => $correctedSource, 'ledger' => $correctedLedger,
-                'reversal_source' => $reversalSource, 'reversal_ledger' => $reversalLedger];
-        });
+            return ['source' => $source->refresh(), 'ledger' => $ledger->refresh()];
+        }, 3);
     }
 }

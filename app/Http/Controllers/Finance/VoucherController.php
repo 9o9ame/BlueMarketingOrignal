@@ -788,8 +788,7 @@ class VoucherController extends Controller
                 'customers' => $customers, // List of customers + head/subhead
                 'id' => $i->id,
                 'type' => $i->type,
-                'editable' => in_array((string) $i->type, ['CR', 'CP'], true)
-                    && $i->customer_ledger_id !== null,
+                'editable' => in_array((string) $i->type, ['CR', 'CP', 'PPR'], true),
             ];
         });
 
@@ -1282,8 +1281,7 @@ class VoucherController extends Controller
                 'new_values' => json_decode($p?->new_values, true) ?? [],
                 'id' => $i->id,
                 'type' => $i->type,
-                'editable' => in_array((string) $i->type, ['CR', 'CP'], true)
-                    && $i->customer_ledger_id !== null,
+                'editable' => in_array((string) $i->type, ['CR', 'CP', 'PPR'], true),
             ];
         });
 
