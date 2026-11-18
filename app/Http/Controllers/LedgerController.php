@@ -1280,7 +1280,8 @@ class LedgerController extends Controller
             ->where('is_active', 1)
             ->whereHas('projectHeadSubhead', function ($query) use ($selectedProjectId) {
                 $query->where('project_id', $selectedProjectId);
-            });
+            })
+            ->orderBy('id', 'asc');
 
         if (!empty($request->start_date) && empty($request->end_date)) {
             $query->whereDate('date', '>=', $request->start_date);
